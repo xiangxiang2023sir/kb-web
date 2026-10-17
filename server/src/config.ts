@@ -20,7 +20,7 @@ const SENSITIVITIES: Sensitivity[] = ['public', 'internal', 'confidential', 'top
 
 export interface AppConfig {
   auth: { cookieName: string; ttlDays: number }
-  search: { fetchLimit: number; keep: number; maxPages: number }
+  search: { fetchLimit: number; keep: number; maxPages: number; questionPhrases: string[] }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
   keywords: Record<Field, string[]>
@@ -91,6 +91,10 @@ export function loadConfig(): AppConfig {
       fetchLimit: Number(raw.search?.fetchLimit ?? 30),
       keep: Number(raw.search?.keep ?? 5),
       maxPages: Number(raw.search?.maxPages ?? 2),
+      questionPhrases:
+        raw.search?.questionPhrases == null
+          ? ['怎么处理', '如何处理', '怎么办', '如何', '是什么']
+          : asStringArray(raw.search.questionPhrases),
     },
     confidence: {
       highMin: Number(raw.confidence?.highMin ?? 0.03),

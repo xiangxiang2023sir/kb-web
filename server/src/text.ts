@@ -16,6 +16,20 @@ export function guessSensitivity(text: string, config: AppConfig): Sensitivity {
   return config.defaults.sensitivity
 }
 
+/**
+ * 去掉疑问说法后再交给 GBrain。中文问题没有空格，整句去匹配会错过正文里的设备名。
+ * 只删配置里的短语（至少两个字），不用单字去切。删完没剩内容就用原句。
+ */
+export function searchQueryOf(text: string, phrases: string[]): string {
+  const original = text.trim()
+  if (!original) return ''
+  const sorted = phrases.filter((phrase) => phrase.length >= 2).sort((a, b) => b.length - a.length)
+  let out = original
+  for (const phrase of sorted) out = out.split(phrase).join(' ')
+  out = out.replace(/[？?！!。，,、；;：:\s]+/g, ' ').trim()
+  return out || original
+}
+
 export function asciiSlug(title: string, id: string): string {
   const ascii = title
     .toLowerCase()

@@ -6,6 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
+import { searchQueryOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -23,6 +24,15 @@ test('slug 前缀决定能不能看', () => {
   assert.equal(canSee(wang, 'mechanical', 'public'), false)
   assert.equal(canSee(guest, 'electrical', 'public'), true)
   assert.equal(canSee(guest, 'electrical', 'internal'), false)
+})
+
+test('疑问说法不进入检索词', () => {
+  const phrases = ['怎么处理', '如何处理', '怎么办', '如何', '是什么']
+  assert.equal(searchQueryOf('变频器过载怎么处理', phrases), '变频器过载')
+  assert.equal(searchQueryOf('如何处理变频器过载？', phrases), '变频器过载')
+  assert.equal(searchQueryOf('润滑油是什么', phrases), '润滑油')
+  assert.equal(searchQueryOf('怎么处理', phrases), '怎么处理')
+  assert.equal(searchQueryOf('F009', phrases), 'F009')
 })
 
 test('登录、入库和依据不足', async () => {
