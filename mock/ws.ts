@@ -144,7 +144,8 @@ wss.on('connection', (ws: WebSocket) => {
     } catch {
       return
     }
-    if (msg.type === 'ask') handleAsk(ws, msg, timers)
+    if (msg.type === 'ping') send(ws, { type: 'pong' })
+    else if (msg.type === 'ask') handleAsk(ws, msg, timers)
     else if (msg.type === 'cancel') {
       clearTimeout(timers.get(msg.questionId))
       timers.delete(msg.questionId)

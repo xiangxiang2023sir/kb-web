@@ -64,7 +64,8 @@ async function doReject(row: DocItem) {
 
 <template>
   <div class="page-card">
-    <el-table v-loading="loading" :data="list" empty-text="没有待确认的文档">
+    <el-skeleton v-if="loading && !list.length" :rows="5" animated />
+    <el-table v-else v-loading="loading" :data="list" empty-text="没有待确认的文档">
       <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
       <el-table-column label="建议领域" width="110">
         <template #default="{ row }">

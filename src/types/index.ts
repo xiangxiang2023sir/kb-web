@@ -55,6 +55,8 @@ export interface ChatAttachment {
 export type WsClientMessage =
   | { type: 'ask'; questionId: string; question: string; sessionId?: string; attachments?: ChatAttachment[] }
   | { type: 'cancel'; questionId: string }
+  /** 心跳：前端每 25s 发一次，后端应立即回 pong */
+  | { type: 'ping' }
 
 /** 检索/生成阶段；no_evidence 表示知识库依据不足 */
 export type WsPhase = 'retrieving' | 'generating' | 'no_evidence'
@@ -67,6 +69,8 @@ export type WsServerMessage =
   | { type: 'confidence'; questionId: string; level: ConfidenceLevel; score: number }
   | { type: 'done'; questionId: string }
   | { type: 'error'; questionId?: string; message: string }
+  /** 心跳应答 */
+  | { type: 'pong' }
 
 // ---------- 会话 ----------
 

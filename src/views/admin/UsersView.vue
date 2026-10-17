@@ -69,7 +69,8 @@ async function save() {
       <el-button type="primary" @click="openCreate">新增用户</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="list">
+    <el-skeleton v-if="loading && !list.length" :rows="5" animated />
+    <el-table v-else v-loading="loading" :data="list">
       <el-table-column prop="name" label="用户名" min-width="160" />
       <el-table-column label="角色" width="120">
         <template #default="{ row }">{{ roleLabels[row.role as Role] }}</template>

@@ -1,9 +1,9 @@
 import axios from 'axios'
 import router from '@/router'
 
-/** REST 客户端：同源 /api，HttpOnly Cookie 鉴权 */
+/** REST 客户端：默认同源 /api（可用 VITE_API_BASE 覆盖），HttpOnly Cookie 鉴权 */
 export const http = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_BASE || '/api',
   withCredentials: true,
   timeout: 30000,
 })

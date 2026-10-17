@@ -61,7 +61,8 @@ const statusTagType = (s: DocStatus) =>
       <el-button type="primary" @click="reload">查询</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="list" @row-click="openDoc">
+    <el-skeleton v-if="loading && !list.length" :rows="5" animated />
+    <el-table v-else v-loading="loading" :data="list" @row-click="openDoc">
       <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
       <el-table-column label="领域" width="100">
         <template #default="{ row }">{{ fieldLabels[row.field as Field] }}</template>

@@ -26,7 +26,8 @@ function open(row: Session) {
 <template>
   <div class="app-content">
     <div class="page-card">
-      <el-table v-loading="loading" :data="list" empty-text="暂无历史会话" @row-click="open">
+      <el-skeleton v-if="loading && !list.length" :rows="5" animated />
+      <el-table v-else v-loading="loading" :data="list" empty-text="暂无历史会话" @row-click="open">
         <el-table-column prop="title" label="标题" min-width="220" />
         <el-table-column prop="preview" label="最近内容" min-width="280" show-overflow-tooltip />
         <el-table-column label="更新时间" width="180">

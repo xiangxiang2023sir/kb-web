@@ -64,7 +64,8 @@ const statusTag = (s: QuestionStatus) =>
       </el-select>
     </div>
 
-    <el-table v-loading="loading" :data="list" empty-text="暂无问题">
+    <el-skeleton v-if="loading && !list.length" :rows="5" animated />
+    <el-table v-else v-loading="loading" :data="list" empty-text="暂无问题">
       <el-table-column prop="question" label="问题" min-width="260" show-overflow-tooltip />
       <el-table-column prop="askedBy" label="提问人" width="100" />
       <el-table-column label="领域" width="90">

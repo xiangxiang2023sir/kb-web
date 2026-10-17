@@ -44,7 +44,8 @@ const typeTag = (t: HealthIssue['type']) =>
       <span class="hint">检查范围：死链、引用完整性、格式规范</span>
     </div>
 
-    <el-table v-loading="loading" :data="list" empty-text="暂无问题，知识库状态良好">
+    <el-skeleton v-if="loading && !list.length" :rows="5" animated />
+    <el-table v-else v-loading="loading" :data="list" empty-text="暂无问题，知识库状态良好">
       <el-table-column label="类型" width="120">
         <template #default="{ row }">
           <el-tag size="small" :type="typeTag(row.type)">

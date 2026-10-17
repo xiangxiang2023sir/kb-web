@@ -11,7 +11,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-if="overview" class="stat-grid">
+  <el-skeleton v-if="!overview" :rows="3" animated />
+  <div v-else class="stat-grid">
     <el-card shadow="never" class="stat" @click="$router.push('/admin/docs/review')">
       <div class="num" :class="{ warn: overview.pendingDocs > 0 }">{{ overview.pendingDocs }}</div>
       <div class="label">待确认文档</div>

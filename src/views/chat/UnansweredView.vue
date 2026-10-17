@@ -23,7 +23,8 @@ const statusTag = (s: QuestionStatus) =>
 <template>
   <div class="app-content">
     <div class="page-card">
-      <el-table v-loading="loading" :data="list" empty-text="暂无转入队列的问题">
+      <el-skeleton v-if="loading && !list.length" :rows="5" animated />
+      <el-table v-else v-loading="loading" :data="list" empty-text="暂无转入队列的问题">
         <el-table-column prop="question" label="问题" min-width="280" show-overflow-tooltip />
         <el-table-column label="领域" width="100">
           <template #default="{ row }">{{ fieldLabels[row.field as keyof typeof fieldLabels] }}</template>
