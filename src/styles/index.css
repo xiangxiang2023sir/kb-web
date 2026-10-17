@@ -1,0 +1,153 @@
+/* 工业知识库全局样式：深色侧边栏 + 浅色内容区，少动画，注重效率 */
+
+:root {
+  --kb-sidebar-bg: #1f262e;
+  --kb-sidebar-border: rgba(255, 255, 255, 0.08);
+  --kb-sidebar-text: #c2cad4;
+  --kb-content-bg: #f3f4f6;
+  --kb-border: #dcdfe4;
+  --kb-text: #1f2329;
+  --kb-text-secondary: #5a6270;
+  --el-color-primary: #2b5fd9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 15px;
+  color: var(--kb-text);
+  background: var(--kb-content-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 布局骨架（对话壳 / 管理壳共用） ===== */
+.app-shell {
+  display: flex;
+  height: 100%;
+}
+
+.app-sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--kb-sidebar-bg);
+  color: var(--kb-sidebar-text);
+}
+
+.app-sidebar .logo {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+  border-bottom: 1px solid var(--kb-sidebar-border);
+  letter-spacing: 1px;
+}
+
+.app-sidebar .el-menu {
+  border-right: none;
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--kb-sidebar-text);
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.06);
+  --el-menu-active-color: #ffffff;
+  --el-menu-item-height: 46px;
+  --el-menu-sub-item-height: 42px;
+}
+
+.app-sidebar .el-menu-item.is-active {
+  background: rgba(43, 95, 217, 0.35);
+}
+
+.app-sidebar .el-menu-item-group__title {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 12px 14px;
+  border-top: 1px solid var(--kb-sidebar-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar-footer .user-chip {
+  font-size: 13px;
+  color: var(--kb-sidebar-text);
+  padding: 4px 0;
+}
+
+.sidebar-footer .el-button {
+  margin-left: 0;
+  justify-content: flex-start;
+  color: var(--kb-sidebar-text);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-topbar {
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--kb-border);
+}
+
+.app-topbar .page-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-content {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
+
+.page-card {
+  background: #fff;
+  border: 1px solid var(--kb-border);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* 尊重系统「减少动态效果」设置 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
