@@ -171,6 +171,9 @@ export const useChatStore = defineStore('chat', {
           m.phase = 'done'
           this.finish(questionId)
           break
+        case 'session':
+          this.sessionId = msg.sessionId
+          break
         case 'error':
           m.phase = 'error'
           m.errorText = msg.message

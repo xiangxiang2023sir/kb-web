@@ -69,6 +69,8 @@ export type WsServerMessage =
   | { type: 'confidence'; questionId: string; level: ConfidenceLevel; score: number }
   | { type: 'done'; questionId: string }
   | { type: 'error'; questionId?: string; message: string }
+  /** 新会话的 id。前端记下后，同一页的追问会带上 sessionId */
+  | { type: 'session'; questionId: string; sessionId: string }
   /** 心跳应答 */
   | { type: 'pong' }
 

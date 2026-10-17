@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:real": "cross-env VITE_MOCK=0 vite",
+    "server": "npm --prefix server run dev",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview"
   },

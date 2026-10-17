@@ -1,0 +1,67 @@
+# 工厂知识库后端配置。改完保存，重启后端即可，不用改代码。
+# 密钥不要写在这里，写在 server/.env。
+
+# 检索：先向 GBrain 取一批，再按登录人的领域和密级丢掉不能看的，最后留给模型 keep 条。
+search:
+  fetchLimit: 30
+  keep: 5
+  maxPages: 2
+
+# GBrain 的 score 是排序分，不是 0 到 1 的概率。
+# 联调时如果每条回答都是「低」，把下面两个数调小。
+confidence:
+  highMin: 0.03
+  mediumMin: 0.015
+
+# 过滤后一条都没有时，原样推给用户，不调用模型。
+noEvidence:
+  text: 知识库中没有找到与该问题直接相关的资料。为避免误导，我不做推测性回答。你可以将问题转入问题队列，由领域责任人解答后入库。
+  score: 0.2
+
+# 上传文档、转入问题队列时，用这些词判断领域。模型不可用时也用这张表。
+keywords:
+  electrical: [变频, 配电, 电气, 电机, PLC, UPS, 电缆, 开关柜]
+  mechanical: [锅炉, 泵, 磨机, 空压, 减速, 轴承, 输送, 润滑]
+  dispatch: [调度, 交接班, 值班, 排产]
+sensitivityKeywords:
+  top_secret: [绝密, 核心算法]
+  confidential: [机密, 报价, 合同, 供应商]
+  public: [公开, 国家标准, 产品介绍]
+defaults:
+  field: electrical
+  sensitivity: internal
+
+# 文本生成。baseUrl 不要带 /chat/completions，程序会自己接上。
+llm:
+  baseUrl: https://api.deepseek.com
+  model: deepseek-chat
+  temperature: 0.2
+  maxTokens: 2000
+
+# 照片。baseUrl 留空表示还没接视觉模型，此时发送照片会得到明确提示。
+# 接口需要兼容 OpenAI 的 image_url。
+vision:
+  baseUrl: ""
+  model: ""
+  maxImages: 4
+
+# GBrain 命令。Windows 上如果 gbrain 不能直接运行，把 command 改成 bun 或 node 的完整路径，
+# 并把启动参数写进 argsPrefix。用户的问题只会作为单独参数传入，不会拼进 shell。
+gbrain:
+  command: gbrain
+  argsPrefix: []
+  timeoutMs: 25000
+
+# 工厂规程多数彼此不链接。打开后会把 gbrain orphans 的结果算作「引用完整性」，
+# 独立成篇的规程也会被报出来。
+health:
+  reportIslandedPages: false
+
+limits:
+  imageBytes: 10485760
+  docBytes: 20971520
+  classifyChars: 6000
+
+auth:
+  cookieName: kb_sid
+  ttlDays: 7
