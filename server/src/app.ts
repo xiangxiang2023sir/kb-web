@@ -410,7 +410,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
-  app.get('/api/admin/users', requireOwner, (_req, res) => {
+  // 管理员指派问题时也要名单；增改用户仍仅主人
+  app.get('/api/admin/users', requireAdmin, (_req, res) => {
     res.json(db.listUsers())
   })
 

@@ -17,6 +17,8 @@ async function load() {
   loading.value = true
   try {
     list.value = await adminApi.questions(query)
+  } catch {
+    ElMessage.error('问题列表加载失败')
   } finally {
     loading.value = false
   }
@@ -24,7 +26,11 @@ async function load() {
 
 onMounted(async () => {
   await load()
-  users.value = await adminApi.users()
+  try {
+    users.value = await adminApi.users()
+  } catch {
+    // 拉不到指派人名单时页面仍可用，只是不能指派
+  }
 })
 
 const assignVisible = ref(false)

@@ -29,11 +29,16 @@ function reset() {
 function reload() {
   location.reload()
 }
+
+function displayMessage(err: Error): string {
+  const ax = err as Error & { response?: { data?: { message?: string } } }
+  return ax.response?.data?.message || err.message || '未知错误'
+}
 </script>
 
 <template>
   <div v-if="error" class="error-boundary">
-    <el-result icon="error" title="页面出现异常" :sub-title="error.message || '未知错误'">
+    <el-result icon="error" title="页面出现异常" :sub-title="displayMessage(error)">
       <template #extra>
         <el-button type="primary" @click="reset">重试</el-button>
         <el-button @click="reload">刷新页面</el-button>

@@ -454,7 +454,7 @@ const routes: Route[] = [
   {
     method: 'GET',
     pattern: '/admin/users',
-    role: 'owner',
+    role: 'admin',
     handler: ({ res }) => sendJson(res, 200, users.map(publicUser)),
   },
   {

@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
 import type { AdminOverview } from '@/types'
 
 const overview = ref<AdminOverview | null>(null)
 
 onMounted(async () => {
-  overview.value = await adminApi.overview()
+  try {
+    overview.value = await adminApi.overview()
+  } catch {
+    ElMessage.error('总览数据加载失败')
+  }
 })
 </script>
 

@@ -133,6 +133,16 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     })
     assert.equal(forbidden.status, 403)
 
+    const adminUsers = await fetch(`${base}/api/admin/users`, { headers: { cookie: adminCookie } })
+    assert.equal(adminUsers.status, 200)
+    assert.ok(Array.isArray(await adminUsers.json()))
+    const adminCreate = await fetch(`${base}/api/admin/users`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'x', password: '1', role: 'operator', field: 'electrical' }),
+    })
+    assert.equal(adminCreate.status, 403)
+
     const events = await ask(base, cookie, '空结果')
     assert.ok(events.some((e) => e.type === 'status' && e.phase === 'no_evidence'))
     assert.ok(events.some((e) => e.type === 'done'))

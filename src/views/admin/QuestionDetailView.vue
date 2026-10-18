@@ -20,9 +20,14 @@ const form = reactive<{ answer: string; title: string; field: Field; sensitivity
 })
 
 onMounted(async () => {
-  q.value = await adminApi.question(String(route.params.id))
-  form.title = q.value.question.slice(0, 30)
-  form.field = q.value.field
+  try {
+    q.value = await adminApi.question(String(route.params.id))
+    form.title = q.value.question.slice(0, 30)
+    form.field = q.value.field
+  } catch {
+    ElMessage.error('问题不存在或无权查看')
+    router.push({ name: 'admin-questions' })
+  }
 })
 
 async function submit() {
