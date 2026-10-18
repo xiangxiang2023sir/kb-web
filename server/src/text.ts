@@ -31,6 +31,25 @@ export function searchQueryOf(text: string, phrases: string[]): string {
 }
 
 const CJK_RUN = /[㐀-䶿一-鿿豈-﫿]+/g
+const TALK_TAIL = /[呀啊呢哈哦吧啦嘛咯诶么吖]+$/g
+
+function compactTalk(text: string): string {
+  return text.trim().toLowerCase().replace(/[！!。.?？,，、；;：:\s]+/g, '')
+}
+
+/** 整句是打招呼、道谢时不检索知识库。含设备名的长句不会误判。 */
+export function isSmallTalk(text: string, phrases: string[]): boolean {
+  const n = compactTalk(text)
+  if (!n || n.length > 16) return false
+  const stem = n.replace(TALK_TAIL, '')
+  const sorted = phrases.filter((p) => compactTalk(p).length >= 1).sort((a, b) => b.length - a.length)
+  for (const phrase of sorted) {
+    const p = compactTalk(phrase)
+    if (stem === p || n === p) return true
+    if (stem === `${p}你` || stem === `${p}您`) return true
+  }
+  return false
+}
 
 /**
  * 把检索词整理成 GBrain 能用的查询串。

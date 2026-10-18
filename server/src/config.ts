@@ -23,6 +23,7 @@ export interface AppConfig {
   search: { fetchLimit: number; keep: number; maxPages: number; questionPhrases: string[] }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
+  chat: { phrases: string[]; fallback: string }
   keywords: Record<Field, string[]>
   sensitivityKeywords: { top_secret: string[]; confidential: string[]; public: string[] }
   defaults: { field: Field; sensitivity: Sensitivity }
@@ -31,7 +32,7 @@ export interface AppConfig {
   gbrain: { command: string; argsPrefix: string[]; timeoutMs: number }
   health: { reportIslandedPages: boolean }
   limits: { imageBytes: number; docBytes: number; classifyChars: number }
-  prompts: { qa: string; classify: string; vision: string }
+  prompts: { qa: string; classify: string; vision: string; chat: string }
 }
 
 export const serverRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -104,6 +105,15 @@ export function loadConfig(): AppConfig {
       text: String(raw.noEvidence?.text ?? ''),
       score: Number(raw.noEvidence?.score ?? 0.2),
     },
+    chat: {
+      phrases:
+        raw.chat?.phrases == null
+          ? ['你好', '您好', '嗨', 'hi', 'hello', '在吗', '谢谢', '再见', '你是谁', '你能做什么']
+          : asStringArray(raw.chat.phrases),
+      fallback: String(
+        raw.chat?.fallback ?? '你好，我是工厂知识库助手。问设备、规程或故障时我会按资料回答。',
+      ),
+    },
     keywords: {
       electrical: asStringArray(raw.keywords?.electrical),
       mechanical: asStringArray(raw.keywords?.mechanical),
@@ -140,7 +150,12 @@ export function loadConfig(): AppConfig {
       docBytes: Number(raw.limits?.docBytes ?? 20 * 1024 * 1024),
       classifyChars: Number(raw.limits?.classifyChars ?? 6000),
     },
-    prompts: { qa: read('qa.md'), classify: read('classify.md'), vision: read('vision.md') },
+    prompts: {
+      qa: read('qa.md'),
+      classify: read('classify.md'),
+      vision: read('vision.md'),
+      chat: read('chat.md'),
+    },
   }
 }
 

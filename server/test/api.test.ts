@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
 import { confidenceOf } from '../src/config.js'
-import { decodeUploadName, extractText, searchQueryOf, searchTermsOf } from '../src/text.js'
+import { decodeUploadName, extractText, isSmallTalk, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -25,6 +25,17 @@ test('slug 前缀决定能不能看', () => {
   assert.equal(canSee(wang, 'mechanical', 'public'), false)
   assert.equal(canSee(guest, 'electrical', 'public'), true)
   assert.equal(canSee(guest, 'electrical', 'internal'), false)
+})
+
+test('打招呼不走知识库检索', () => {
+  const phrases = ['你好', '您好', '谢谢', '你是谁', 'hi']
+  assert.equal(isSmallTalk('你好', phrases), true)
+  assert.equal(isSmallTalk('你好呀！', phrases), true)
+  assert.equal(isSmallTalk('谢谢你', phrases), true)
+  assert.equal(isSmallTalk('Hi', phrases), true)
+  assert.equal(isSmallTalk('你是谁', phrases), true)
+  assert.equal(isSmallTalk('液压油多久换一次', phrases), false)
+  assert.equal(isSmallTalk('你好，液压油怎么换', phrases), false)
 })
 
 test('疑问说法不进入检索词', () => {
@@ -104,7 +115,8 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
 `,
   )
   process.env.KB_CONFIG = join(dir, 'config.yaml')
-  delete process.env.DEEPSEEK_API_KEY
+  // 空字符串：loadEnvFile 不会用 server/.env 覆盖已有变量
+  process.env.DEEPSEEK_API_KEY = ''
   // 本机 server/.env 里可能有真实的 GBRAIN_BIN，测试必须用 fake，且要先于 start() 里的 loadEnvFile
   process.env.GBRAIN_BIN = 'node'
   const server = await start({ dataDir: dir, port: 0, host: '127.0.0.1' })
@@ -170,6 +182,11 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     assert.ok(events.some((e) => e.type === 'status' && e.phase === 'no_evidence'))
     assert.ok(events.some((e) => e.type === 'done'))
     assert.ok(events.some((e) => e.type === 'session' && typeof e.sessionId === 'string'))
+
+    const hi = await ask(base, cookie, '你好')
+    assert.ok(!hi.some((e) => e.type === 'status' && e.phase === 'no_evidence'))
+    assert.ok(hi.some((e) => e.type === 'delta'))
+    assert.ok(hi.some((e) => e.type === 'done'))
   } finally {
     await server.close()
     rmSync(dir, { recursive: true, force: true })

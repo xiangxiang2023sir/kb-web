@@ -81,7 +81,7 @@ function retry(m: ChatMessage) {
     <div ref="scrollRef" class="chat-messages">
       <div v-if="!messages.length" class="chat-empty">
         <h2>向知识库提问</h2>
-        <p>回答来自知识库检索，附出处与置信度；答不了的问题可转入问题队列。</p>
+        <p>问设备、规程或故障会检索资料并附出处；打招呼、闲聊也可以直接说。</p>
       </div>
 
       <div v-for="m in messages" :key="m.id" class="msg-row" :class="m.role">

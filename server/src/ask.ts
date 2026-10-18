@@ -5,7 +5,7 @@ import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User }
 import { KbDb, newId } from './db.js'
 import { GBrainError, searchGBrain } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
-import { searchQueryOf, searchTermsOf } from './text.js'
+import { isSmallTalk, searchQueryOf, searchTermsOf } from './text.js'
 
 interface AskMessage {
   type: 'ask'
@@ -93,10 +93,38 @@ export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: App
     }
     if (run.cancelled) return
 
+    const askedAt = new Date().toISOString()
+    if (!attachments.length && isSmallTalk(question, config.chat.phrases)) {
+      send(ws, { type: 'status', questionId, phase: 'generating' })
+      const history = db.recentMessages(sessionId, 6).map((m) => ({ role: m.role, content: m.text }))
+      let answer = ''
+      if (!process.env.DEEPSEEK_API_KEY) {
+        answer = config.chat.fallback
+        for (const part of chunkText(answer)) send(ws, { type: 'delta', questionId, text: part })
+      } else {
+        await streamAnswer(
+          config,
+          [{ role: 'system', content: config.prompts.chat }, ...history, { role: 'user', content: question }],
+          (text) => {
+            answer += text
+            send(ws, { type: 'delta', questionId, text })
+          },
+          abort.signal,
+        )
+      }
+      if (run.cancelled) {
+        persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, ws)
+        send(ws, { type: 'done', questionId })
+        return
+      }
+      persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, ws)
+      send(ws, { type: 'done', questionId })
+      return
+    }
+
     const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
     const query = searchTermsOf(stripped)
     const hits = await collectHits(config, user, query)
-    const askedAt = new Date().toISOString()
 
     if (hits.length === 0) {
       const text = config.noEvidence.text
