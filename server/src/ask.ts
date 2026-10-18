@@ -5,7 +5,7 @@ import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User }
 import { KbDb, newId } from './db.js'
 import { GBrainError, searchGBrain } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
-import { searchQueryOf } from './text.js'
+import { searchQueryOf, searchTermsOf } from './text.js'
 
 interface AskMessage {
   type: 'ask'
@@ -93,7 +93,8 @@ export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: App
     }
     if (run.cancelled) return
 
-    const query = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
+    const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
+    const query = searchTermsOf(stripped)
     const hits = await collectHits(config, user, query)
     const askedAt = new Date().toISOString()
 

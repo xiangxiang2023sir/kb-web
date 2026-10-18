@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
-import { searchQueryOf } from '../src/text.js'
+import { searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -35,6 +35,24 @@ test('疑问说法不进入检索词', () => {
   assert.equal(searchQueryOf('F009', phrases), 'F009')
 })
 
+test('检索词切分成 GBrain 能或匹配的词组', () => {
+  // 中文长句：整段保留，另补二字组、三字组
+  const terms = searchTermsOf('液压油多久换一次').split(' ')
+  for (const expected of ['液压油多久换一次', '液压油', '液压', '压油', '多久', '一次']) {
+    assert.ok(terms.includes(expected), `缺少 ${expected}`)
+  }
+  // 字母数字段原样保留，不切碎
+  assert.equal(searchTermsOf('F009'), 'F009')
+  assert.ok(searchTermsOf('F009 报警').split(' ').includes('F009'))
+  // 已有空格的词各自成段
+  const two = searchTermsOf('变频器 过载').split(' ')
+  assert.ok(two.includes('变频器') && two.includes('过载'))
+  // 单字噪音丢弃；整句只有一个字时保留
+  assert.equal(searchTermsOf('液压油 吗'), searchTermsOf('液压油'))
+  assert.equal(searchTermsOf('油'), '油')
+  assert.equal(searchTermsOf(''), '')
+})
+
 test('登录、入库和依据不足', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kb-'))
   writeFileSync(
@@ -55,6 +73,8 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
   )
   process.env.KB_CONFIG = join(dir, 'config.yaml')
   delete process.env.DEEPSEEK_API_KEY
+  // 本机 server/.env 里可能有真实的 GBRAIN_BIN，测试必须用 fake，且要先于 start() 里的 loadEnvFile
+  process.env.GBRAIN_BIN = 'node'
   const server = await start({ dataDir: dir, port: 0, host: '127.0.0.1' })
   const base = `http://127.0.0.1:${server.port}`
   try {

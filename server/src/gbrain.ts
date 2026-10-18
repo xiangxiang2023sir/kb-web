@@ -58,7 +58,17 @@ export function runGBrain(config: AppConfig, args: string[], timeoutMs = config.
       const stdout = Buffer.concat(out).toString('utf8')
       const stderr = Buffer.concat(err).toString('utf8').trim()
       if (code !== 0) {
-        done(() => reject(new GBrainError(stderr || `GBrain 退出码 ${code}`)))
+        // GBrain 出错时有时把 JSON 错误写在 stdout、stderr 为空，尽量取出 message
+        let detail = stderr
+        if (!detail) {
+          try {
+            const parsed = JSON.parse(stdout) as { message?: unknown; error?: unknown }
+            detail = String(parsed.message ?? parsed.error ?? '')
+          } catch {
+            /* stdout 不是 JSON 就算了 */
+          }
+        }
+        done(() => reject(new GBrainError(detail || `GBrain 退出码 ${code}`)))
         return
       }
       done(() => resolve(stdout))
@@ -99,7 +109,8 @@ export async function searchGBrain(config: AppConfig, query: string, limit: numb
 }
 
 export async function captureGBrain(config: AppConfig, file: string, slug: string) {
-  await runGBrain(config, ['capture', '--file', file, '--slug', slug], config.gbrain.timeoutMs * 2)
+  // --force：同 slug 重复确认（重新入库）时直接替换旧页，否则 GBrain 报 revision_required
+  await runGBrain(config, ['capture', '--file', file, '--slug', slug, '--force'], config.gbrain.timeoutMs * 2)
 }
 
 export async function orphanGBrain(config: AppConfig): Promise<{ slug: string; title: string }[]> {

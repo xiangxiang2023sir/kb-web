@@ -30,6 +30,36 @@ export function searchQueryOf(text: string, phrases: string[]): string {
   return out || original
 }
 
+const CJK_RUN = /[㐀-䶿一-鿿豈-﫿]+/g
+
+/**
+ * 把检索词整理成 GBrain 能用的查询串。
+ * 实测 GBrain search 是逐词子串匹配、词与词之间是「或」的关系：
+ * 整句中文当一个词会错过正文（「液压油多久换一次」匹配不到任何文档），
+ * 所以每个中文片段拆成 整段 + 二字组 + 三字组，一次调用全部丢给它去或匹配；
+ * 命中的词越多分数越高，正文里真正的设备名自然排在前面。
+ * 数字/字母段（F009、16MPa）原样保留。单字词噪音大，除非整句只有一个字否则丢弃。
+ */
+export function searchTermsOf(query: string): string {
+  const terms = new Set<string>()
+  const singleChars: string[] = []
+  for (const word of query.split(/\s+/).filter(Boolean)) {
+    const cjkRuns = word.match(CJK_RUN) ?? []
+    for (const ascii of word.replace(CJK_RUN, ' ').split(/\s+/).filter(Boolean)) terms.add(ascii)
+    for (const run of cjkRuns) {
+      if (run.length === 1) {
+        singleChars.push(run)
+        continue
+      }
+      terms.add(run)
+      for (let i = 0; i + 2 <= run.length; i++) terms.add(run.slice(i, i + 2))
+      for (let i = 0; i + 3 <= run.length; i++) terms.add(run.slice(i, i + 3))
+    }
+  }
+  if (terms.size === 0) for (const ch of singleChars) terms.add(ch)
+  return [...terms].join(' ')
+}
+
 export function asciiSlug(title: string, id: string): string {
   const ascii = title
     .toLowerCase()
