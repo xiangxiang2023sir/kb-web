@@ -37,7 +37,6 @@ const router = createRouter({
         { path: 'questions', name: 'admin-questions', component: () => import('@/views/admin/QuestionsView.vue'), meta: { title: '问题队列' } },
         { path: 'questions/:id', name: 'admin-question-detail', component: () => import('@/views/admin/QuestionDetailView.vue'), meta: { title: '问题详情' } },
         { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue'), meta: { title: '用户管理', roles: ['owner'] as Role[] } },
-        { path: 'feishu', name: 'admin-feishu', component: () => import('@/views/admin/FeishuView.vue'), meta: { title: '飞书绑定' } },
         { path: 'quoestions', redirect: '/admin/questions' },
         { path: ':pathMatch(.*)*', name: 'admin-not-found', component: () => import('@/views/NotFoundView.vue'), meta: { title: '页面不存在' } },
       ],

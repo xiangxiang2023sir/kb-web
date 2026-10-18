@@ -23,7 +23,6 @@ import type {
   QuestionStatus,
   Role,
   Sensitivity,
-  FeishuBinding,
   Session,
   SessionMessage,
   UploadResult,
@@ -112,7 +111,4 @@ export const adminApi = {
     http.post('/admin/users', payload),
   updateUser: (id: string, payload: { role?: Role; field?: Field | null }) =>
     http.patch(`/admin/users/${id}`, payload),
-
-  feishuBindings: () => http.get<FeishuBinding[]>('/admin/feishu/bindings').then((r) => r.data),
-  unbindFeishu: (openId: string) => http.delete(`/admin/feishu/bindings/${encodeURIComponent(openId)}`),
 }

@@ -41,7 +41,7 @@ npm run dev:real
 3. 把 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` 写入 `server/.env`
 4. 网页登录 → 侧栏「绑定飞书」→ 对机器人发送 `绑定 ABC123`
 
-群里默认只在 @机器人 时回答。管理端「飞书绑定」可查看和解绑。
+群里默认只在 @机器人 时回答。发「解绑」取消绑定。
 
 ## 种子账号
 
