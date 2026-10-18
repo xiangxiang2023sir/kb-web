@@ -1,17 +1,37 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ElMessage, type UploadFile, type UploadRawFile } from 'element-plus'
+import { ElMessage, type UploadFile, type UploadInstance, type UploadRawFile } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { adminApi } from '@/api/endpoints'
 import type { UploadResult } from '@/types'
 import { fieldLabels, sensitivityLabels } from '@/utils/labels'
 
+const ACCEPT = '.pdf,.docx,.xlsx,.xls,.md,.txt'
+const ALLOWED = new Set(ACCEPT.split(','))
+
+const uploadRef = ref<UploadInstance>()
 const file = ref<UploadRawFile | null>(null)
 const uploading = ref(false)
 const results = ref<UploadResult[]>([])
 
+function extOf(name: string) {
+  const i = name.lastIndexOf('.')
+  return i >= 0 ? name.slice(i).toLowerCase() : ''
+}
+
+function onRemove() {
+  file.value = null
+}
+
 function onChange(f: UploadFile) {
-  file.value = (f.raw as UploadRawFile) ?? null
+  const raw = (f.raw as UploadRawFile) ?? null
+  if (raw && !ALLOWED.has(extOf(raw.name))) {
+    ElMessage.warning('只支持 PDF、Word（.docx）、Excel（.xlsx / .xls）、Markdown、TXT')
+    file.value = null
+    uploadRef.value?.clearFiles()
+    return
+  }
+  file.value = raw
 }
 
 async function doUpload() {
@@ -19,14 +39,20 @@ async function doUpload() {
     ElMessage.warning('请先选择文件')
     return
   }
+  if (!ALLOWED.has(extOf(file.value.name))) {
+    ElMessage.warning('只支持 PDF、Word（.docx）、Excel（.xlsx / .xls）、Markdown、TXT')
+    return
+  }
   uploading.value = true
   try {
     const r = await adminApi.upload(file.value)
     results.value.unshift(r)
     file.value = null
+    uploadRef.value?.clearFiles()
     ElMessage.success('上传成功，已加入待确认队列')
-  } catch {
-    ElMessage.error('上传失败，请重试')
+  } catch (err) {
+    const ax = err as { response?: { data?: { message?: string } } }
+    ElMessage.error(ax.response?.data?.message || '上传失败，请重试')
   } finally {
     uploading.value = false
   }
@@ -43,11 +69,20 @@ async function doUpload() {
       style="margin-bottom: 16px"
     />
 
-    <el-upload drag :auto-upload="false" :multiple="false" :limit="1" :on-change="onChange">
+    <el-upload
+      drag
+      :auto-upload="false"
+      :multiple="false"
+      :limit="1"
+      ref="uploadRef"
+      :accept="ACCEPT"
+      :on-change="onChange"
+      :on-remove="onRemove"
+    >
       <el-icon size="40"><UploadFilled /></el-icon>
       <div class="el-upload__text">拖拽文件到此处，或 <em>点击选择</em></div>
       <template #tip>
-        <div class="el-upload__tip">支持常见文档格式（PDF / Word / Markdown 等）</div>
+        <div class="el-upload__tip">仅支持 PDF、Word（.docx）、Excel（.xlsx / .xls）、Markdown、TXT。旧版 .doc、PPT、图片、压缩包不能入库。</div>
       </template>
     </el-upload>
 

@@ -93,7 +93,7 @@ export async function extractText(filePath: string, filename: string): Promise<s
     const book = xlsx.readFile(filePath)
     return book.SheetNames.map((name) => xlsx.utils.sheet_to_csv(book.Sheets[name])).join('\n')
   }
-  throw Object.assign(new Error('只支持 pdf、docx、xlsx、md、txt'), { status: 400 })
+  throw Object.assign(new Error('只支持 pdf、docx、xlsx、xls、md、txt'), { status: 400 })
 }
 
 const WIKI = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g

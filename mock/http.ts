@@ -320,6 +320,10 @@ const routes: Route[] = [
       const raw = (await readRaw(req)).toString('latin1')
       const m = /filename="([^"]+)"/.exec(raw)
       const filename = m?.[1] ?? '未命名文档'
+      const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')).toLowerCase() : ''
+      if (!['.pdf', '.docx', '.xlsx', '.xls', '.md', '.txt'].includes(ext)) {
+        return sendJson(res, 400, { message: '只支持 pdf、docx、xlsx、xls、md、txt' })
+      }
       const title = filename.replace(/\.[^.]+$/, '')
       const suggestedField = guessField(filename)
       const suggestedSensitivity: Sensitivity = 'internal'
