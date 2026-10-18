@@ -4,14 +4,14 @@ import { dirname, join } from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import Busboy from 'busboy'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { assertCanConfirm } from './access.js'
+import { assertCanConfirm, parseSlug } from './access.js'
 import { cancelAll, cancelAsk, contextOf, handleAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
 import { GBrainError, captureGBrain } from './gbrain.js'
 import { runHealth } from './health.js'
 import { classifyText } from './llm.js'
-import { asciiSlug, extractText, guessField, guessSensitivity, toMarkdown } from './text.js'
+import { asciiSlug, decodeUploadName, extractText, guessField, guessSensitivity, toMarkdown } from './text.js'
 
 interface AppLocals {
   user?: User
@@ -52,7 +52,11 @@ function readMultipart(req: IncomingMessage, maxBytes: number): Promise<UploadFi
   return new Promise((resolve, reject) => {
     let busboy: Busboy.Busboy
     try {
-      busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: maxBytes } })
+      busboy = Busboy({
+        headers: req.headers,
+        limits: { files: 1, fileSize: maxBytes },
+        defParamCharset: 'utf8',
+      })
     } catch {
       reject(new HttpError(400, '未收到文件'))
       return
@@ -66,7 +70,11 @@ function readMultipart(req: IncomingMessage, maxBytes: number): Promise<UploadFi
         tooBig = true
       })
       stream.on('end', () => {
-        file = { name: info.filename || 'file', mime: info.mimeType || 'application/octet-stream', data: Buffer.concat(chunks) }
+        file = {
+          name: decodeUploadName(info.filename || 'file'),
+          mime: info.mimeType || 'application/octet-stream',
+          data: Buffer.concat(chunks),
+        }
       })
     })
     busboy.on('error', () => reject(new HttpError(400, '未收到文件')))
@@ -96,6 +104,27 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   const dataDir = opts?.dataDir ?? join(serverRoot, 'data')
   mkdirSync(dataDir, { recursive: true })
   const db = openDb(join(dataDir, 'kb.sqlite'))
+  db.repairTitles(decodeUploadName)
+  for (const doc of db.confirmedDocs()) {
+    const parsed = parseSlug(doc.slug)
+    if (!parsed) continue
+    const markdown = toMarkdown(doc.title, parsed.field, parsed.sensitivity, doc.content)
+    const corpus = join(dataDir, 'corpus', `${doc.slug}.md`)
+    let current = ''
+    try {
+      current = readFileSync(corpus, 'utf8')
+    } catch {
+      /* 还没有语料文件 */
+    }
+    if (current === markdown) continue
+    mkdirSync(dirname(corpus), { recursive: true })
+    writeFileSync(corpus, markdown, 'utf8')
+    try {
+      await captureGBrain(config, corpus, doc.slug)
+    } catch {
+      // 启动时把 GBrain 页标题改回来，失败不挡服务
+    }
+  }
   const app = express()
   app.use(express.json({ limit: '2mb' }))
 

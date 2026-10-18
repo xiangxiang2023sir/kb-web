@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
 import { confidenceOf } from '../src/config.js'
-import { extractText, searchQueryOf, searchTermsOf } from '../src/text.js'
+import { decodeUploadName, extractText, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -52,6 +52,13 @@ test('检索词切分成 GBrain 能或匹配的词组', () => {
   assert.equal(searchTermsOf('液压油 吗'), searchTermsOf('液压油'))
   assert.equal(searchTermsOf('油'), '油')
   assert.equal(searchTermsOf(''), '')
+})
+
+test('上传文件名的 UTF-8 乱码能还原成中文', () => {
+  const garbled = Buffer.from('保养规程.xlsm', 'utf8').toString('latin1')
+  assert.equal(decodeUploadName(garbled), '保养规程.xlsm')
+  assert.equal(decodeUploadName('保养规程.xlsm'), '保养规程.xlsm')
+  assert.equal(decodeUploadName('report.xlsx'), 'report.xlsx')
 })
 
 test('xlsm 按表格抽出文字', async () => {

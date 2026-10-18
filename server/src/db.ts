@@ -212,6 +212,17 @@ export class KbDb {
     }
   }
 
+  repairTitles(fix: (title: string) => string): string[] {
+    const changed: string[] = []
+    for (const r of this.many(`SELECT id, title FROM docs`)) {
+      const next = fix(String(r.title))
+      if (next === r.title) continue
+      this.run(`UPDATE docs SET title = ? WHERE id = ?`, next, r.id)
+      changed.push(String(r.id))
+    }
+    return changed
+  }
+
   insertDoc(row: {
     id: string
     title: string

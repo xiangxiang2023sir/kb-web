@@ -60,6 +60,21 @@ export function searchTermsOf(query: string): string {
   return [...terms].join(' ')
 }
 
+/**
+ * multipart 文件名：busboy 默认按 latin1 解参数，UTF-8 中文会变成 ä¿å 这种。
+ * 已是汉字的保持不动；把「UTF-8 字节被当成 latin1」的串还原。
+ */
+export function decodeUploadName(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return 'file'
+  if (/[\u4e00-\u9fff]/.test(trimmed)) return trimmed
+  const asUtf8 = Buffer.from(trimmed, 'latin1').toString('utf8')
+  if (asUtf8.includes('\uFFFD')) return trimmed
+  const cjk = (asUtf8.match(/[\u4e00-\u9fff]/g) ?? []).length
+  if (cjk > 0) return asUtf8
+  return trimmed
+}
+
 export function asciiSlug(title: string, id: string): string {
   const ascii = title
     .toLowerCase()
