@@ -82,9 +82,37 @@
    - 不要改 `ask.ts` 流水线。新文件像 `feishu.ts`：收消息、绑用户、`runAsk`、把文字发出去
    - Webhook 必须在 3 秒内 HTTP 200，问答放后台
    - 群默认只在被 @ 时回答（`config.yaml` → `feishu.groupOnlyMention`）
-   - 本机 `127.0.0.1` 收不到公网事件。推荐 Cloudflare Tunnel（`npm run tunnel:named`）指到 `http://127.0.0.1:3000`，不要把 HOST 改成 `0.0.0.0`
+   - 本机 `127.0.0.1` 收不到公网事件。飞书固定域名按下面「飞书公网回调」做；不要把 HOST 改成 `0.0.0.0`
 6. **Hermes 或其它 Agent 探路时：** 可以先用 GBrain CLI 试入库、试检索，把稳定步骤写回 `extractText` / 新路由。不要让 Agent 直接当网站大脑，也不要改 GBrain 仓库。
 7. **另一台电脑的 Cursor：** 克隆 https://github.com/xiangxiang2023sir/kb-web ，读本文件和 `.cursor/rules/`。本机密钥和 `GBRAIN_BIN` 各自建 `server/.env`，不要从别人机器拷贝。
+
+## 飞书公网回调（给 Hermes / 另一台机）
+
+在**跑知识库后端的那台机**上做，不要改问答代码。目标：飞书能 POST 到固定 `https://主机名/api/feishu/events`，流量打到本机 `http://127.0.0.1:3000`。
+
+**不要做：** 改 `HOST=0.0.0.0`；把 Vite `5173` 打到公网；把 `cert.pem`、tunnel token、`FEISHU_*`、`*.json` 凭证提交进 git。
+
+**人要先准备好（Agent 做不了）：**
+
+- 一个域名，Nameserver 已切到 Cloudflare（免费套餐即可）
+- Cloudflare 账号能登录
+- 飞书企业自建应用：权限能收发消息，事件 `im.message.receive_v1`，Encryption Key / Verification Token 已生成
+
+**步骤（优先控制台）：**
+
+1. 确认 `npm run server` 已监听 `http://127.0.0.1:3000`。`server/.env` 里 `HOST=127.0.0.1`。
+2. 未装则安装 `cloudflared`（Windows：`winget install -e --id Cloudflare.cloudflared`）。
+3. 打开 https://one.dash.cloudflare.com/ → Networks → Tunnels → Create → Cloudflared，名字 `kb-web`。
+4. 按页面给的 Windows 命令安装服务（带 token），或前台：`cloudflared tunnel run --token <TOKEN>`。token 只放本机。
+5. Public Hostname：`kb.<已有域名>`，Type HTTP，URL `http://127.0.0.1:3000`。
+6. 浏览器打开 `https://kb.<已有域名>/api/auth/me`，应返回 JSON（未登录 401 也算通）。
+7. 飞书开放平台「请求网址」填 `https://kb.<已有域名>/api/feishu/events`，保存挑战。失败先看隧道是否在跑、后端是否在 3000。
+8. `server/.env` 写 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_VERIFICATION_TOKEN` / `FEISHU_ENCRYPT_KEY`，重启后端。
+9. 网页登录 → 「绑定飞书」→ 对机器人发 `绑定 ABC123` → 再问一句已入库设备名，应有出处。
+
+没有域名、只想先测：`npm run tunnel`，把日志里的 `https://xxxx.trycloudflare.com/api/feishu/events` 临时填进飞书；重启会变，测通后改回固定域名。
+
+本机命令备选：`cloudflared tunnel login` → `create kb-web` → `route dns kb-web kb.<域名>` → `%USERPROFILE%\.cloudflared\config.yml` 的 ingress 指到 `http://127.0.0.1:3000` → `npm run tunnel:named`。凭证文件不要进仓库。
 
 ## 验证
 

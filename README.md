@@ -38,7 +38,7 @@ npm run dev:real
 
 ### 固定域名（推荐，URL 不变）
 
-前提：有一个域名，Nameserver 已经切到 Cloudflare（免费套餐即可）。本机 `cloudflared` 已装。
+在**跑后端的那台机**上做（给 Hermes 的逐条清单见 `AGENTS.md`「飞书公网回调」）。前提：有一个域名，Nameserver 已经切到 Cloudflare。
 
 **做法 A：控制台（少踩坑）**
 
