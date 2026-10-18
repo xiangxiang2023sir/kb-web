@@ -6,6 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
+import { confidenceOf } from '../src/config.js'
 import { searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
@@ -51,6 +52,14 @@ test('检索词切分成 GBrain 能或匹配的词组', () => {
   assert.equal(searchTermsOf('液压油 吗'), searchTermsOf('液压油'))
   assert.equal(searchTermsOf('油'), '油')
   assert.equal(searchTermsOf(''), '')
+})
+
+test('置信度分数压到 0–1，大分仍算充分', () => {
+  const cfg = { highMin: 0.03, mediumMin: 0.015 }
+  assert.deepEqual(confidenceOf(5008, { confidence: cfg } as never), { level: 'high', score: 1 })
+  assert.deepEqual(confidenceOf(0.05, { confidence: cfg } as never), { level: 'high', score: 0.05 })
+  assert.deepEqual(confidenceOf(0.02, { confidence: cfg } as never), { level: 'medium', score: 0.02 })
+  assert.deepEqual(confidenceOf(0.01, { confidence: cfg } as never), { level: 'low', score: 0.01 })
 })
 
 test('登录、入库和依据不足', async () => {

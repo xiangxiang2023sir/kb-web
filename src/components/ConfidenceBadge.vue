@@ -13,6 +13,6 @@ const meta: Record<ConfidenceLevel, { label: string; type: 'success' | 'warning'
 
 <template>
   <el-tag :type="meta[level].type" effect="light">
-    置信度：{{ meta[level].label }}（{{ Math.round(score * 100) }}%）
+    置信度：{{ meta[level].label }}（{{ Math.min(100, Math.max(0, Math.round(score * 100))) }}%）
   </el-tag>
 </template>

@@ -145,7 +145,9 @@ export function loadConfig(): AppConfig {
 }
 
 export function confidenceOf(score: number, config: AppConfig): { level: ConfidenceLevel; score: number } {
-  if (score >= config.confidence.highMin) return { level: 'high', score }
-  if (score >= config.confidence.mediumMin) return { level: 'medium', score }
-  return { level: 'low', score }
+  // GBrain 关键词分经常远大于 1（多词或匹配会到几千），前端按 0–1 显示百分比，这里压住
+  const shown = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0
+  if (score >= config.confidence.highMin) return { level: 'high', score: shown }
+  if (score >= config.confidence.mediumMin) return { level: 'medium', score: shown }
+  return { level: 'low', score: shown }
 }
