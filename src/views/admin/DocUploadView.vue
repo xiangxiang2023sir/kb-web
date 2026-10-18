@@ -6,7 +6,7 @@ import { adminApi } from '@/api/endpoints'
 import type { UploadResult } from '@/types'
 import { fieldLabels, sensitivityLabels } from '@/utils/labels'
 
-const ACCEPT = '.pdf,.docx,.xlsx,.xls,.md,.txt'
+const ACCEPT = '.pdf,.docx,.xlsx,.xls,.xlsm,.md,.txt'
 const ALLOWED = new Set(ACCEPT.split(','))
 
 const uploadRef = ref<UploadInstance>()
@@ -26,7 +26,7 @@ function onRemove() {
 function onChange(f: UploadFile) {
   const raw = (f.raw as UploadRawFile) ?? null
   if (raw && !ALLOWED.has(extOf(raw.name))) {
-    ElMessage.warning('只支持 PDF、Word（.docx）、Excel（.xlsx / .xls）、Markdown、TXT')
+    ElMessage.warning('只支持 PDF、Word（.docx）、Excel（.xlsx / .xls / .xlsm）、Markdown、TXT')
     file.value = null
     uploadRef.value?.clearFiles()
     return
@@ -40,7 +40,7 @@ async function doUpload() {
     return
   }
   if (!ALLOWED.has(extOf(file.value.name))) {
-    ElMessage.warning('只支持 PDF、Word（.docx）、Excel（.xlsx / .xls）、Markdown、TXT')
+    ElMessage.warning('只支持 PDF、Word（.docx）、Excel（.xlsx / .xls / .xlsm）、Markdown、TXT')
     return
   }
   uploading.value = true
@@ -82,7 +82,7 @@ async function doUpload() {
       <el-icon size="40"><UploadFilled /></el-icon>
       <div class="el-upload__text">拖拽文件到此处，或 <em>点击选择</em></div>
       <template #tip>
-        <div class="el-upload__tip">仅支持 PDF、Word（.docx）、Excel（.xlsx / .xls）、Markdown、TXT。旧版 .doc、PPT、图片、压缩包不能入库。</div>
+        <div class="el-upload__tip">仅支持 PDF、Word（.docx）、Excel（.xlsx / .xls / .xlsm）、Markdown、TXT。旧版 .doc、PPT、图片、压缩包不能入库。带宏的 Excel 只抽取表格文字，宏不会运行。</div>
       </template>
     </el-upload>
 

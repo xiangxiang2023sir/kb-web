@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
 import { confidenceOf } from '../src/config.js'
-import { searchQueryOf, searchTermsOf } from '../src/text.js'
+import { extractText, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -52,6 +52,22 @@ test('检索词切分成 GBrain 能或匹配的词组', () => {
   assert.equal(searchTermsOf('液压油 吗'), searchTermsOf('液压油'))
   assert.equal(searchTermsOf('油'), '油')
   assert.equal(searchTermsOf(''), '')
+})
+
+test('xlsm 按表格抽出文字', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-xlsm-'))
+  const path = join(dir, '保养.xlsm')
+  try {
+    const xlsx = await import('xlsx')
+    const book = xlsx.utils.book_new()
+    xlsx.utils.book_append_sheet(book, xlsx.utils.aoa_to_sheet([['液压油', '2000小时']]), '规程')
+    xlsx.writeFile(book, path, { bookType: 'xlsm' })
+    const text = await extractText(path, '保养.xlsm')
+    assert.match(text, /液压油/)
+    assert.match(text, /2000小时/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('置信度分数压到 0–1，大分仍算充分', () => {
