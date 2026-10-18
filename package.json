@@ -7,6 +7,8 @@
     "dev": "vite",
     "dev:real": "cross-env VITE_MOCK=0 vite",
     "server": "npm --prefix server run dev",
+    "tunnel": "cloudflared tunnel --url http://127.0.0.1:3000",
+    "tunnel:named": "cloudflared tunnel run kb-web",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview"
   },

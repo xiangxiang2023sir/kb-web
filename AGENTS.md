@@ -82,7 +82,7 @@
    - 不要改 `ask.ts` 流水线。新文件像 `feishu.ts`：收消息、绑用户、`runAsk`、把文字发出去
    - Webhook 必须在 3 秒内 HTTP 200，问答放后台
    - 群默认只在被 @ 时回答（`config.yaml` → `feishu.groupOnlyMention`）
-   - 本机 `127.0.0.1` 收不到公网事件，要 HTTPS 反代或内网穿透
+   - 本机 `127.0.0.1` 收不到公网事件。推荐 Cloudflare Tunnel（`npm run tunnel:named`）指到 `http://127.0.0.1:3000`，不要把 HOST 改成 `0.0.0.0`
 6. **Hermes 或其它 Agent 探路时：** 可以先用 GBrain CLI 试入库、试检索，把稳定步骤写回 `extractText` / 新路由。不要让 Agent 直接当网站大脑，也不要改 GBrain 仓库。
 7. **另一台电脑的 Cursor：** 克隆 https://github.com/xiangxiang2023sir/kb-web ，读本文件和 `.cursor/rules/`。本机密钥和 `GBRAIN_BIN` 各自建 `server/.env`，不要从别人机器拷贝。
 

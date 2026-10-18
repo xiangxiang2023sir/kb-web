@@ -34,12 +34,51 @@ npm run dev:real
 
 ## 飞书
 
-本机 `127.0.0.1:3000` 收不到飞书的公网回调，需要已有 HTTPS 域名反代到后端，或内网穿透。
+飞书开放平台只能往**公网 HTTPS** 推事件。本机 `127.0.0.1:3000`、车间网段 `192.168.x` 都收不到。后端继续只监听本机；用 Cloudflare Tunnel 把 `/api/feishu/events` 送出去。不要把 `HOST` 改成 `0.0.0.0`。
+
+### 固定域名（推荐，URL 不变）
+
+前提：有一个域名，Nameserver 已经切到 Cloudflare（免费套餐即可）。本机 `cloudflared` 已装。
+
+**做法 A：控制台（少踩坑）**
+
+1. 打开 [Cloudflare Zero Trust → Tunnels](https://one.dash.cloudflare.com/) → Create a tunnel → Cloudflared → 名字填 `kb-web`
+2. 选 Windows，复制并运行它给的 `cloudflared.exe service install <TOKEN>`（或本机前台跑 `cloudflared tunnel run --token <TOKEN>`）
+3. Public Hostname：例如 `kb.你的域名.com`，Type `HTTP`，URL `http://127.0.0.1:3000`
+4. 飞书请求网址填：`https://kb.你的域名.com/api/feishu/events`
+
+**做法 B：本机命令**
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create kb-web
+cloudflared tunnel route dns kb-web kb.你的域名.com
+```
+
+在 `%USERPROFILE%\.cloudflared\config.yml` 写（UUID 以 `tunnel create` 输出为准，不要提交进 git）：
+
+```yaml
+tunnel: <TUNNEL-UUID>
+credentials-file: C:\Users\你的用户名\.cloudflared\<TUNNEL-UUID>.json
+ingress:
+  - hostname: kb.你的域名.com
+    service: http://127.0.0.1:3000
+  - service: http_status:404
+```
+
+后端起来之后：`npm run tunnel:named`
+
+### 临时测（每次重启换域名）
+
+```bash
+npm run tunnel
+```
+
+日志里的 `https://xxxx.trycloudflare.com/api/feishu/events` 可先填进飞书做挑战，测完改成固定域名。
 
 1. 飞书开放平台建企业自建应用，开通收发消息权限，订阅事件 `im.message.receive_v1`
-2. 请求网址填 `https://你的域名/api/feishu/events`
-3. 把 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` 写入 `server/.env`
-4. 网页登录 → 侧栏「绑定飞书」→ 对机器人发送 `绑定 ABC123`
+2. 把 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` 写入 `server/.env`，重启后端
+3. 网页登录 → 侧栏「绑定飞书」→ 对机器人发送 `绑定 ABC123`
 
 群里默认只在 @机器人 时回答。发「解绑」取消绑定。
 
