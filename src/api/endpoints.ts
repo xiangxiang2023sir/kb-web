@@ -3,10 +3,10 @@
  * 后端按此清单实现，前端页面只调用这里的方法。
  * 问答流不走 REST，走 src/api/ws.ts（/ws WebSocket 推流）。
  *
- * 后端实现参考（Node → GBrain CLI 子进程 / Hermes HTTP）：
- * - /ws ask           → gbrain search/query 检索 → Hermes 生成（流式）
- * - /admin/docs/*     → 上传解析 → Hermes 自动分类 → gbrain put 入库
- * - /admin/health/run → gbrain find_orphans / find_anomalies 等
+ * 后端实现参考（详见 AGENTS.md）：
+ * - /ws ask           → 闲聊或 gbrain search → DeepSeek 流式生成
+ * - /admin/docs/*     → extractText 解析 → 分类 → gbrain capture 入库
+ * - /admin/health/run → gbrain orphans 等
  */
 import { http } from './http'
 import type {

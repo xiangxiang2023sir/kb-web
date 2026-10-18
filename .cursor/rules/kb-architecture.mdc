@@ -1,0 +1,15 @@
+---
+description: 工厂知识库的目的与硬约束，换机器、换 Agent 也要遵守
+alwaysApply: true
+---
+
+# 工厂知识库
+
+完整说明见仓库根目录 `AGENTS.md`。改功能前先读。
+
+- 这是车间工作台：检索规程、带出处问答、问题队列；以后的邮件/办事是独立模块，不是对话里乱调工具。
+- 模型只写字。发邮件、写 GBrain、改工单状态必须走后端明确路由。
+- 不要改 GBrain 源码；只用 CLI（search / capture / orphans / frontmatter），参数数组 spawn。
+- slug = 权限：`{field}/{sensitivity}/{name}`。密钥和 `GBRAIN_BIN` 只在 `server/.env`。
+- 能改 yaml / prompts 就不要改代码。新文件格式改 `extractText` + 上传页 `ACCEPT`。
+- 验证：`npm --prefix server test`、根目录 `npm run build`；UI 要浏览器走相关页。
