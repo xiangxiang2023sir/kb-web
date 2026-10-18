@@ -33,6 +33,7 @@ export interface AppConfig {
   health: { reportIslandedPages: boolean }
   limits: { imageBytes: number; docBytes: number; classifyChars: number }
   prompts: { qa: string; classify: string; vision: string; chat: string }
+  feishu: { groupOnlyMention: boolean }
 }
 
 export const serverRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -156,6 +157,7 @@ export function loadConfig(): AppConfig {
       vision: read('vision.md'),
       chat: read('chat.md'),
     },
+    feishu: { groupOnlyMention: raw.feishu?.groupOnlyMention !== false },
   }
 }
 

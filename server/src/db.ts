@@ -431,6 +431,65 @@ export class KbDb {
     }))
   }
 
+  createFeishuBindCode(code: string, userId: string, ttlSec: number) {
+    this.run(`DELETE FROM feishu_bind_codes WHERE user_id = ?`, userId)
+    const expires = new Date(Date.now() + ttlSec * 1000).toISOString()
+    this.run(`INSERT INTO feishu_bind_codes (code, user_id, expires_at) VALUES (?, ?, ?)`, code, userId, expires)
+  }
+
+  consumeFeishuBindCode(code: string): string | null {
+    const row = this.one(`SELECT user_id, expires_at FROM feishu_bind_codes WHERE code = ?`, code.toUpperCase())
+    this.run(`DELETE FROM feishu_bind_codes WHERE code = ?`, code.toUpperCase())
+    if (!row) return null
+    if (String(row.expires_at) < new Date().toISOString()) return null
+    return String(row.user_id)
+  }
+
+  bindFeishu(openId: string, userId: string) {
+    this.run(`DELETE FROM feishu_bindings WHERE open_id = ? OR user_id = ?`, openId, userId)
+    this.run(
+      `INSERT INTO feishu_bindings (open_id, user_id, bound_at) VALUES (?, ?, ?)`,
+      openId,
+      userId,
+      new Date().toISOString(),
+    )
+  }
+
+  unbindFeishu(openId: string) {
+    this.run(`DELETE FROM feishu_bindings WHERE open_id = ?`, openId)
+  }
+
+  getFeishuBinding(openId: string): { userId: string; sessionId?: string } | null {
+    const row = this.one(`SELECT user_id, session_id FROM feishu_bindings WHERE open_id = ?`, openId)
+    if (!row) return null
+    return { userId: String(row.user_id), sessionId: row.session_id ? String(row.session_id) : undefined }
+  }
+
+  setFeishuSession(openId: string, sessionId: string) {
+    this.run(`UPDATE feishu_bindings SET session_id = ? WHERE open_id = ?`, sessionId, openId)
+  }
+
+  listFeishuBindings(): { openId: string; userId: string; userName: string; boundAt: string }[] {
+    return this.many(
+      `SELECT b.open_id, b.user_id, b.bound_at, u.name AS user_name
+       FROM feishu_bindings b JOIN users u ON u.id = b.user_id
+       ORDER BY b.bound_at DESC`,
+    ).map((r) => ({
+      openId: String(r.open_id),
+      userId: String(r.user_id),
+      userName: String(r.user_name),
+      boundAt: String(r.bound_at),
+    }))
+  }
+
+  seenFeishuEvent(eventId: string): boolean {
+    const row = this.one(`SELECT id FROM feishu_events WHERE id = ?`, eventId)
+    if (row) return true
+    this.run(`INSERT INTO feishu_events (id, seen_at) VALUES (?, ?)`, eventId, new Date().toISOString())
+    this.run(`DELETE FROM feishu_events WHERE seen_at < ?`, new Date(Date.now() - 24 * 3600_000).toISOString())
+    return false
+  }
+
   overview() {
     const start = new Date()
     start.setHours(0, 0, 0, 0)
@@ -561,6 +620,21 @@ CREATE TABLE IF NOT EXISTS health_issues (
   doc_title TEXT NOT NULL,
   detail TEXT NOT NULL,
   ran_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feishu_bindings (
+  open_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  session_id TEXT,
+  bound_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feishu_bind_codes (
+  code TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feishu_events (
+  id TEXT PRIMARY KEY,
+  seen_at TEXT NOT NULL
 );
 `
 

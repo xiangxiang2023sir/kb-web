@@ -11,6 +11,16 @@ import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
 import { GBrainError, captureGBrain } from './gbrain.js'
 import { runHealth } from './health.js'
 import { classifyText } from './llm.js'
+import {
+  challengeOf,
+  eventPayload,
+  feishuConfigured,
+  handleFeishuEvent,
+  issueBindCode,
+  parseFeishuBody,
+  replyFeishu,
+  verifyFeishuRequest,
+} from './feishu.js'
 import { asciiSlug, decodeUploadName, extractText, guessField, guessSensitivity, toMarkdown } from './text.js'
 
 interface AppLocals {
@@ -126,7 +136,14 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }
   }
   const app = express()
-  app.use(express.json({ limit: '2mb' }))
+  app.use(
+    express.json({
+      limit: '2mb',
+      verify: (req, _res, buf) => {
+        ;(req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf)
+      },
+    }),
+  )
 
   app.use((req, res, next) => {
     const sid = cookieOf(req, config.auth.cookieName)
@@ -190,6 +207,47 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     if (!user) return res.status(401).json({ message: '未登录' })
     res.json(user)
   })
+
+  app.post('/api/feishu/events', (req, res) => {
+    if (!feishuConfigured()) return res.status(503).json({ message: '未配置飞书' })
+    const raw = (req as Request & { rawBody?: Buffer }).rawBody?.toString('utf8') ?? JSON.stringify(req.body ?? {})
+    const headers = {
+      'x-lark-request-timestamp': req.header('x-lark-request-timestamp') ?? undefined,
+      'x-lark-request-nonce': req.header('x-lark-request-nonce') ?? undefined,
+      'x-lark-signature': req.header('x-lark-signature') ?? undefined,
+    }
+    const check = verifyFeishuRequest(headers, raw)
+    if (!check.ok) return res.status(check.status).json({ message: check.message })
+    let parsed: Record<string, unknown>
+    try {
+      parsed = parseFeishuBody(raw, process.env.FEISHU_ENCRYPT_KEY ?? '')
+    } catch {
+      return res.status(400).json({ message: '无法解析' })
+    }
+    const challenge = challengeOf(parsed)
+    if (challenge) return res.json({ challenge })
+    res.json({ code: 0 })
+    const payload = eventPayload(parsed)
+    if (!payload || db.seenFeishuEvent(payload.eventId)) return
+    void handleFeishuEvent(db, config, payload.event, replyFeishu).catch((err) => console.error('[feishu]', err))
+  })
+
+  app.post('/api/feishu/bind-code', requireUser, (_req, res) => {
+    res.json(issueBindCode(db, userOf(res)!.id))
+  })
+
+  app.get('/api/admin/feishu/bindings', requireAdmin, (_req, res) => {
+    res.json(db.listFeishuBindings())
+  })
+
+  app.delete(
+    '/api/admin/feishu/bindings/:openId',
+    requireAdmin,
+    (req, res) => {
+      db.unbindFeishu(req.params.openId)
+      res.json({ ok: true })
+    },
+  )
 
   app.get('/api/chat/sessions', requireUser, (req, res) => {
     res.json(db.listChatSessions(userOf(res)!.id))

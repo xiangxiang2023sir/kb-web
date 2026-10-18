@@ -5,6 +5,7 @@
  *
  * 后端实现参考（详见 AGENTS.md）：
  * - /ws ask           → 闲聊或 gbrain search → DeepSeek 流式生成
+ * - /feishu/events    → 飞书 webhook，后台走同一套 runAsk
  * - /admin/docs/*     → extractText 解析 → 分类 → gbrain capture 入库
  * - /admin/health/run → gbrain orphans 等
  */
@@ -22,6 +23,7 @@ import type {
   QuestionStatus,
   Role,
   Sensitivity,
+  FeishuBinding,
   Session,
   SessionMessage,
   UploadResult,
@@ -52,6 +54,8 @@ export const chatApi = {
     form.append('file', file)
     return http.post<ChatAttachment>('/chat/uploads', form).then((r) => r.data)
   },
+  /** 生成一次性绑定码，在飞书对机器人发送「绑定 ABC123」 */
+  bindFeishuCode: () => http.post<{ code: string; expiresIn: number }>('/feishu/bind-code').then((r) => r.data),
 }
 
 // ---------- 问题队列（用户侧） ----------
@@ -108,4 +112,7 @@ export const adminApi = {
     http.post('/admin/users', payload),
   updateUser: (id: string, payload: { role?: Role; field?: Field | null }) =>
     http.patch(`/admin/users/${id}`, payload),
+
+  feishuBindings: () => http.get<FeishuBinding[]>('/admin/feishu/bindings').then((r) => r.data),
+  unbindFeishu: (openId: string) => http.delete(`/admin/feishu/bindings/${encodeURIComponent(openId)}`),
 }

@@ -12,6 +12,7 @@ import {
   CircleCheck,
   QuestionFilled,
   User,
+  Connection,
   ChatDotRound,
   SwitchButton,
 } from '@element-plus/icons-vue'
@@ -63,6 +64,10 @@ async function logout() {
         <el-menu-item v-if="auth.user?.role === 'owner'" index="/admin/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/feishu">
+          <el-icon><Connection /></el-icon>
+          <span>飞书绑定</span>
         </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">

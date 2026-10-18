@@ -17,7 +17,7 @@ import {
   type MockDoc,
   type MockUser,
 } from './data'
-import type { ChatAttachment, Field, QuestionItem, Sensitivity, UploadResult, User } from '../src/types/index'
+import type { ChatAttachment, FeishuBinding, Field, QuestionItem, Sensitivity, UploadResult, User } from '../src/types/index'
 
 // ---------- 工具 ----------
 
@@ -134,6 +134,9 @@ function match(pattern: string, path: string): Record<string, string> | null {
 let seq = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++seq}`
 const now = () => new Date().toISOString()
+const feishuBindings: FeishuBinding[] = [
+  { openId: 'ou_mock_wang', userId: 'u3', userName: 'wang', boundAt: '2026-10-18T08:00:00.000Z' },
+]
 
 const routes: Route[] = [
   // ---------- 认证 ----------
@@ -262,6 +265,15 @@ const routes: Route[] = [
     pattern: '/questions/mine',
     handler: ({ user, res }) => {
       sendJson(res, 200, questions.filter((q) => q.askedBy === user?.name))
+    },
+  },
+
+  {
+    method: 'POST',
+    pattern: '/feishu/bind-code',
+    handler: ({ res }) => {
+      const code = Math.random().toString(16).slice(2, 8).toUpperCase().padEnd(6, 'A')
+      sendJson(res, 200, { code, expiresIn: 300 })
     },
   },
 
@@ -492,6 +504,22 @@ const routes: Route[] = [
       if (body.role) u.role = body.role as User['role']
       if ('field' in body) u.field = (body.field as Field | null) ?? null
       sendJson(res, 200, publicUser(u))
+    },
+  },
+  {
+    method: 'GET',
+    pattern: '/admin/feishu/bindings',
+    role: 'admin',
+    handler: ({ res }) => sendJson(res, 200, feishuBindings),
+  },
+  {
+    method: 'DELETE',
+    pattern: '/admin/feishu/bindings/:openId',
+    role: 'admin',
+    handler: ({ params, res }) => {
+      const i = feishuBindings.findIndex((b) => b.openId === params.openId)
+      if (i >= 0) feishuBindings.splice(i, 1)
+      sendJson(res, 200, { ok: true })
     },
   },
 ]

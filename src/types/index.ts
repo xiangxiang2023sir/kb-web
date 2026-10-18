@@ -25,6 +25,14 @@ export interface User {
   field: Field | null
 }
 
+/** 飞书 open_id 与本地用户的绑定 */
+export interface FeishuBinding {
+  openId: string
+  userId: string
+  userName: string
+  boundAt: string
+}
+
 // ---------- 问答 WebSocket 协议 ----------
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low'

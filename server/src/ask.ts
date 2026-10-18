@@ -7,13 +7,15 @@ import { GBrainError, searchGBrain } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
 import { isSmallTalk, searchQueryOf, searchTermsOf } from './text.js'
 
-interface AskMessage {
+export interface AskMessage {
   type: 'ask'
   questionId: string
   question: string
   sessionId?: string
   attachments?: { id: string; url: string; name: string; mimeType: string; size: number }[]
 }
+
+export type AskEmit = (event: Record<string, unknown>) => void
 
 interface Run {
   abort: AbortController
@@ -49,8 +51,8 @@ export function cancelAll(ws: WebSocket) {
   runs.delete(ws)
 }
 
+/** 网站 WebSocket 入口。飞书等通道走 runAsk + 自己的 emit。 */
 export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: AppConfig, msg: AskMessage) {
-  const questionId = msg.questionId
   const abort = new AbortController()
   const run: Run = { abort, cancelled: false }
   let socketRuns = runs.get(ws)
@@ -58,134 +60,154 @@ export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: App
     socketRuns = new Map()
     runs.set(ws, socketRuns)
   }
-  socketRuns.set(questionId, run)
-
-  const finish = () => socketRuns!.delete(questionId)
+  socketRuns.set(msg.questionId, run)
   try {
-    const question = (msg.question ?? '').trim()
-    const attachments = msg.attachments ?? []
-    if (!question && attachments.length === 0) {
-      send(ws, { type: 'error', questionId, message: '请输入问题或上传照片' })
-      return
-    }
-    if (attachments.length > config.vision.maxImages) {
-      send(ws, { type: 'error', questionId, message: `一次最多 ${config.vision.maxImages} 张照片` })
-      return
-    }
+    await runAsk(user, db, config, msg, (event) => send(ws, event), run)
+  } finally {
+    socketRuns!.delete(msg.questionId)
+  }
+}
 
-    let sessionId = msg.sessionId
-    if (sessionId && !db.getChatSession(sessionId, user.id)) sessionId = undefined
-    if (!sessionId) sessionId = newId('s')
-    send(ws, { type: 'status', questionId, phase: 'retrieving' })
+export async function runAsk(
+  user: User,
+  db: KbDb,
+  config: AppConfig,
+  msg: AskMessage,
+  emit: AskEmit,
+  run?: Run,
+) {
+  const questionId = msg.questionId
+  const abort = run?.abort ?? new AbortController()
+  const cancelled = () => run?.cancelled === true
 
-    let photoNote = ''
-    if (attachments.length) {
-      const images = []
-      for (const item of attachments) {
-        const row = db.getUpload(item.id)
-        if (!row || row.userId !== user.id) {
-          send(ws, { type: 'error', questionId, message: '照片不存在或无权使用' })
-          return
-        }
-        images.push({ mime: row.mime, data: readFileSync(row.path) })
-      }
-      photoNote = await describeImages(config, images, abort.signal)
-    }
-    if (run.cancelled) return
+  const question = (msg.question ?? '').trim()
+  const attachments = msg.attachments ?? []
+  if (!question && attachments.length === 0) {
+    emit({ type: 'error', questionId, message: '请输入问题或上传照片' })
+    return
+  }
+  if (attachments.length > config.vision.maxImages) {
+    emit({ type: 'error', questionId, message: `一次最多 ${config.vision.maxImages} 张照片` })
+    return
+  }
 
-    const askedAt = new Date().toISOString()
-    if (!attachments.length && isSmallTalk(question, config.chat.phrases)) {
-      send(ws, { type: 'status', questionId, phase: 'generating' })
-      const history = db.recentMessages(sessionId, 6).map((m) => ({ role: m.role, content: m.text }))
-      let answer = ''
-      if (!process.env.DEEPSEEK_API_KEY) {
-        answer = config.chat.fallback
-        for (const part of chunkText(answer)) send(ws, { type: 'delta', questionId, text: part })
-      } else {
-        await streamAnswer(
-          config,
-          [{ role: 'system', content: config.prompts.chat }, ...history, { role: 'user', content: question }],
-          (text) => {
-            answer += text
-            send(ws, { type: 'delta', questionId, text })
-          },
-          abort.signal,
-        )
-      }
-      if (run.cancelled) {
-        persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, ws)
-        send(ws, { type: 'done', questionId })
+  let sessionId = msg.sessionId
+  if (sessionId && !db.getChatSession(sessionId, user.id)) sessionId = undefined
+  if (!sessionId) sessionId = newId('s')
+
+  try {
+  emit({ type: 'status', questionId, phase: 'retrieving' })
+
+  let photoNote = ''
+  if (attachments.length) {
+    const images = []
+    for (const item of attachments) {
+      const row = db.getUpload(item.id)
+      if (!row || row.userId !== user.id) {
+        emit({ type: 'error', questionId, message: '照片不存在或无权使用' })
         return
       }
-      persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, ws)
-      send(ws, { type: 'done', questionId })
-      return
+      images.push({ mime: row.mime, data: readFileSync(row.path) })
     }
+    photoNote = await describeImages(config, images, abort.signal)
+  }
+  if (cancelled()) return
 
-    const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
-    const query = searchTermsOf(stripped)
-    const hits = await collectHits(config, user, query)
-
-    if (hits.length === 0) {
-      const text = config.noEvidence.text
-      const confidence = { level: 'low' as const, score: config.noEvidence.score }
-      send(ws, { type: 'status', questionId, phase: 'no_evidence' })
-      for (const part of chunkText(text)) send(ws, { type: 'delta', questionId, text: part })
-      send(ws, { type: 'confidence', questionId, ...confidence })
-      persist(db, user, sessionId, question, attachments, text, [], confidence, askedAt, questionId, ws)
-      send(ws, { type: 'done', questionId })
-      return
-    }
-
-    send(ws, { type: 'status', questionId, phase: 'generating' })
-    const citations = hits.map((hit, i) => ({
-      id: hit.slug,
-      title: hit.title,
-      path: `kb://${hit.slug}`,
-      snippet: hit.chunkText.slice(0, 240),
-      field: hit.field,
-      sensitivity: hit.sensitivity,
-      marker: `[${i + 1}]`,
-    }))
-    for (const citation of citations) send(ws, { type: 'citation', questionId, citation })
-
+  const askedAt = new Date().toISOString()
+  if (!attachments.length && isSmallTalk(question, config.chat.phrases)) {
+    emit({ type: 'status', questionId, phase: 'generating' })
     const history = db.recentMessages(sessionId, 6).map((m) => ({ role: m.role, content: m.text }))
-    const evidence = hits
-      .map((hit, i) => `[${i + 1}] ${hit.title}\n${hit.chunkText}`)
-      .join('\n\n')
-    const userContent = `${photoNote ? `照片中可见：\n${photoNote}\n\n` : ''}资料：\n${evidence}\n\n问题：\n${question || '请结合照片和资料说明'}`
     let answer = ''
+    if (!process.env.DEEPSEEK_API_KEY) {
+      answer = config.chat.fallback
+      for (const part of chunkText(answer)) emit({ type: 'delta', questionId, text: part })
+    } else {
+      await streamAnswer(
+        config,
+        [{ role: 'system', content: config.prompts.chat }, ...history, { role: 'user', content: question }],
+        (text) => {
+          answer += text
+          emit({ type: 'delta', questionId, text })
+        },
+        abort.signal,
+      )
+    }
+    persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, emit)
+    emit({ type: 'done', questionId })
+    return
+  }
+
+  const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
+  const query = searchTermsOf(stripped)
+  const hits = await collectHits(config, user, query)
+
+  if (hits.length === 0) {
+    const text = config.noEvidence.text
+    const confidence = { level: 'low' as const, score: config.noEvidence.score }
+    emit({ type: 'status', questionId, phase: 'no_evidence' })
+    for (const part of chunkText(text)) emit({ type: 'delta', questionId, text: part })
+    emit({ type: 'confidence', questionId, ...confidence })
+    persist(db, user, sessionId, question, attachments, text, [], confidence, askedAt, questionId, emit)
+    emit({ type: 'done', questionId })
+    return
+  }
+
+  emit({ type: 'status', questionId, phase: 'generating' })
+  const citations = hits.map((hit, i) => ({
+    id: hit.slug,
+    title: hit.title,
+    path: `kb://${hit.slug}`,
+    snippet: hit.chunkText.slice(0, 240),
+    field: hit.field,
+    sensitivity: hit.sensitivity,
+    marker: `[${i + 1}]`,
+  }))
+  for (const citation of citations) emit({ type: 'citation', questionId, citation })
+
+  const history = db.recentMessages(sessionId, 6).map((m) => ({ role: m.role, content: m.text }))
+  const evidence = hits.map((hit, i) => `[${i + 1}] ${hit.title}\n${hit.chunkText}`).join('\n\n')
+  const userContent = `${photoNote ? `照片中可见：\n${photoNote}\n\n` : ''}资料：\n${evidence}\n\n问题：\n${question || '请结合照片和资料说明'}`
+  let answer = ''
+  try {
     await streamAnswer(
       config,
       [{ role: 'system', content: config.prompts.qa }, ...history, { role: 'user', content: userContent }],
       (text) => {
         answer += text
-        send(ws, { type: 'delta', questionId, text })
+        emit({ type: 'delta', questionId, text })
       },
       abort.signal,
     )
-    if (run.cancelled) {
-      persist(db, user, sessionId, question, attachments, answer, citations, undefined, askedAt, questionId, ws)
-      send(ws, { type: 'done', questionId })
-      return
-    }
-    const confidence = confidenceOf(hits[0].score, config)
-    send(ws, { type: 'confidence', questionId, ...confidence })
-    persist(db, user, sessionId, question, attachments, answer, citations, confidence, askedAt, questionId, ws)
-    for (const hit of hits) {
-      const doc = db.findDocBySlug(hit.slug)
-      if (doc) db.addDocRef(doc.id, sessionId, question || '[照片咨询]', askedAt)
-    }
-    send(ws, { type: 'done', questionId })
   } catch (err) {
-    if (run.cancelled || (err as Error).name === 'AbortError') {
-      send(ws, { type: 'done', questionId })
+    if (cancelled() || (err as Error).name === 'AbortError') {
+      persist(db, user, sessionId, question, attachments, answer, citations, undefined, askedAt, questionId, emit)
+      emit({ type: 'done', questionId })
       return
     }
     const message = err instanceof LlmError || err instanceof GBrainError ? err.message : '回答失败，请重试'
-    send(ws, { type: 'error', questionId, message })
-  } finally {
-    finish()
+    emit({ type: 'error', questionId, message })
+    return
+  }
+  if (cancelled()) {
+    persist(db, user, sessionId, question, attachments, answer, citations, undefined, askedAt, questionId, emit)
+    emit({ type: 'done', questionId })
+    return
+  }
+  const confidence = confidenceOf(hits[0].score, config)
+  emit({ type: 'confidence', questionId, ...confidence })
+  persist(db, user, sessionId, question, attachments, answer, citations, confidence, askedAt, questionId, emit)
+  for (const hit of hits) {
+    const doc = db.findDocBySlug(hit.slug)
+    if (doc) db.addDocRef(doc.id, sessionId, question || '[照片咨询]', askedAt)
+  }
+  emit({ type: 'done', questionId })
+  } catch (err) {
+    if (cancelled() || (err as Error).name === 'AbortError') {
+      emit({ type: 'done', questionId })
+      return
+    }
+    const message = err instanceof LlmError || err instanceof GBrainError ? err.message : '回答失败，请重试'
+    emit({ type: 'error', questionId, message })
   }
 }
 
@@ -226,7 +248,7 @@ function persist(
   confidence: { level: string; score: number } | undefined,
   createdAt: string,
   questionId: string,
-  ws: WebSocket,
+  emit: AskEmit,
 ) {
   if (!db.getChatSession(sessionId, user.id)) {
     db.insertChatSession({
@@ -236,7 +258,7 @@ function persist(
       preview: '',
       updatedAt: createdAt,
     })
-    send(ws, { type: 'session', questionId, sessionId })
+    emit({ type: 'session', questionId, sessionId })
   }
   db.insertMessage({
     id: newId('m'),

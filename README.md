@@ -32,6 +32,17 @@ npm run dev:real
 
 可调参数在 `server/config.yaml` 和 `server/prompts/`，改完重启后端。
 
+## 飞书
+
+本机 `127.0.0.1:3000` 收不到飞书的公网回调，需要已有 HTTPS 域名反代到后端，或内网穿透。
+
+1. 飞书开放平台建企业自建应用，开通收发消息权限，订阅事件 `im.message.receive_v1`
+2. 请求网址填 `https://你的域名/api/feishu/events`
+3. 把 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` 写入 `server/.env`
+4. 网页登录 → 侧栏「绑定飞书」→ 对机器人发送 `绑定 ABC123`
+
+群里默认只在 @机器人 时回答。管理端「飞书绑定」可查看和解绑。
+
 ## 种子账号
 
 | 用户 | 密码 | 角色 |

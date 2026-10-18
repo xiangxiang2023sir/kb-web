@@ -20,11 +20,13 @@
 ## 架构
 
 ```
-浏览器  →  Vite / Nginx
-         →  Node 后端 (127.0.0.1:3000)
-              → GBrain CLI：search / capture / orphans / frontmatter
-              → DeepSeek（或其它 OpenAI 兼容接口）：写回答、分类、闲聊
+浏览器 / 飞书  →  Vite / Nginx 或 webhook
+               →  Node 后端 (127.0.0.1:3000)
+                    → GBrain CLI：search / capture / orphans / frontmatter
+                    → DeepSeek（或其它 OpenAI 兼容接口）：写回答、分类、闲聊
 ```
+
+一个大脑、多个插座。网站 WebSocket 和飞书 webhook 都调用 `runAsk(..., emit)`，不要复制检索逻辑。新通道（邮件、企微）同样：验身份 → 绑到本地用户 → `runAsk` → 把字发回去。
 
 - 前端：`src/`（Vue 3 + Pinia + Element Plus）。`npm run dev` 是 Mock；`npm run dev:real` 走真实后端。
 - 后端：`server/src/`（Express + WebSocket）。配置 `server/config.yaml`，密钥 `server/.env`（不要提交）。
@@ -44,7 +46,7 @@
 
 1. **模型只写字，不选工具、不发邮件、不改权限。** 副作用（写库、发信、改工单状态）走后端明确的路由。
 2. **不要改 GBrain 源码。** 只用 CLI：`search --json`、`capture --file --slug --force`、`orphans --json`、`frontmatter validate`。
-3. **密钥和本机路径不进 yaml、不进 git。** `DEEPSEEK_API_KEY`、`GBRAIN_BIN` 只写 `server/.env`。
+3. **密钥和本机路径不进 yaml、不进 git。** `DEEPSEEK_API_KEY`、`GBRAIN_BIN`、`FEISHU_*` 只写 `server/.env`。
 4. **GBrain 用参数数组 spawn，禁止拼进 shell。** 见 `server/src/gbrain.ts`。
 5. **slug 即权限。** 新文档必须 `领域/密级/名字`；检索结果按登录人丢掉不能看的。
 6. **可调参数放 `server/config.yaml` 或 `prompts/`，** 不要为改一句提示词去改 TS。
@@ -59,6 +61,7 @@
 | GBrain 包装 | `server/src/gbrain.ts` |
 | 权限 | `server/src/access.ts` |
 | HTTP / 上传确认 / 队列 | `server/src/app.ts` |
+| 飞书通道（验签、绑定、回复） | `server/src/feishu.ts`；路由在 `app.ts` 的 `/api/feishu/*` |
 | 生成 / 分类 | `server/src/llm.ts`、`server/prompts/*.md` |
 | 阈值、闲聊说法、检索 | `server/config.yaml` |
 | 前端页面 | `src/views/`，接口清单 `src/api/endpoints.ts` |
@@ -75,8 +78,13 @@
    - 谁能点、失败怎么重试、记一条审计日志
    - 模型最多起草正文；发送/改状态由路由完成
    - 邮件密钥同样进 `.env`
-5. **Hermes 或其它 Agent 探路时：** 可以先用 GBrain CLI 试入库、试检索，把稳定步骤写回 `extractText` / 新路由。不要让 Agent 直接当网站大脑，也不要改 GBrain 仓库。
-6. **另一台电脑的 Cursor：** 克隆 https://github.com/xiangxiang2023sir/kb-web ，读本文件和 `.cursor/rules/`。本机密钥和 `GBRAIN_BIN` 各自建 `server/.env`，不要从别人机器拷贝。
+5. **新通道**（飞书已做；邮件 / Teams 同结构）：
+   - 不要改 `ask.ts` 流水线。新文件像 `feishu.ts`：收消息、绑用户、`runAsk`、把文字发出去
+   - Webhook 必须在 3 秒内 HTTP 200，问答放后台
+   - 群默认只在被 @ 时回答（`config.yaml` → `feishu.groupOnlyMention`）
+   - 本机 `127.0.0.1` 收不到公网事件，要 HTTPS 反代或内网穿透
+6. **Hermes 或其它 Agent 探路时：** 可以先用 GBrain CLI 试入库、试检索，把稳定步骤写回 `extractText` / 新路由。不要让 Agent 直接当网站大脑，也不要改 GBrain 仓库。
+7. **另一台电脑的 Cursor：** 克隆 https://github.com/xiangxiang2023sir/kb-web ，读本文件和 `.cursor/rules/`。本机密钥和 `GBRAIN_BIN` 各自建 `server/.env`，不要从别人机器拷贝。
 
 ## 验证
 

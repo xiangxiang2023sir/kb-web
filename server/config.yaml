@@ -73,3 +73,7 @@ limits:
 auth:
   cookieName: kb_sid
   ttlDays: 7
+
+# 飞书：密钥写 server/.env。群里默认只回复 @机器人。
+feishu:
+  groupOnlyMention: true
