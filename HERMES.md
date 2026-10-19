@@ -115,19 +115,19 @@ kb-web 按规矩只绑 `127.0.0.1:3000`，容器经 docker0 网关进不来。�
 
 ## 外部 agent 接入（飞书智能体 / Teams Copilot / 豆包 / 元宝）
 
-**分工**：外部 agent 负责思考和对话，我们只提供「带权限的检索」——不给答案，给片段 + 出处。
+**分工**：知识库按网页同一套流水线写好答案；外部 agent 只原样转发，不自己组织。
 
 **① 网页下载 Skill（一人一把钥匙）**
 
-网页登录 →「绑定外部 agent」→ 下载 `kb-web.SKILL.md`，整份交给飞书智能体 / 豆包 / Cursor。文件里有地址、个人钥匙、怎么检索、怎么提交经验。再下载会使旧文件立刻失效。
+网页登录 →「绑定外部 agent」→ 下载 `kb-web.SKILL.md`，整份交给飞书智能体 / 豆包 / Cursor。文件里有地址、个人钥匙、怎么提问、怎么提交经验。再下载会使旧文件立刻失效。
 
-**② 检索（Skill 里的钥匙）**
+**② 提问（Skill 里的钥匙）**
 ```bash
-curl -X POST http://127.0.0.1:3000/api/agent/search \
+curl -X POST http://127.0.0.1:3000/api/agent/ask \
   -H 'Authorization: Bearer kb_<个人钥匙>' -H 'Content-Type: application/json' \
-  -d '{"query":"行走电机 maxRPM","limit":5}'
-# → {ok, user, hits:[{slug,title,marker,field,sensitivity,snippet}], noEvidence}
-# 只有片段与出处，没有答案；权限按这个网页账号算；不要带 channel / external_id
+  -d '{"query":"行走电机 maxRPM"}'
+# → {ok, user, answer, phase, citations}
+# 把 answer 原样发给用户；不要改写。对外只含 public/internal。
 ```
 
 **安全口径**

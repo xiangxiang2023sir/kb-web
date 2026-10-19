@@ -297,7 +297,8 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const tokenMatch = /Bearer (kb_[a-f0-9]+)/.exec(skill.markdown)
     assert.ok(tokenMatch, 'Skill 里应有个人钥匙')
     const userToken = tokenMatch![1]
-    assert.ok(skill.markdown.includes('/api/agent/search'))
+    assert.ok(skill.markdown.includes('/api/agent/ask'))
+    assert.ok(skill.markdown.includes('原样'))
     assert.ok(!skill.markdown.includes('"external_id"'))
 
     const unbound = await fetch(`${base}/api/agent/search`, {
@@ -327,6 +328,24 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const secretBody = (await secretRes.json()) as { hits: unknown[]; noEvidence: string | null }
     assert.equal(secretBody.hits.length, 0)
     assert.ok(secretBody.noEvidence)
+
+    const askNone = await fetch(`${base}/api/agent/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ query: '空结果' }),
+    })
+    assert.equal(askNone.status, 200)
+    const askBody = (await askNone.json()) as { answer: string; phase: string }
+    assert.equal(askBody.phase, 'no_evidence')
+    assert.match(askBody.answer, /没有资料/)
+
+    const askSecret = await fetch(`${base}/api/agent/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ query: '绝密' }),
+    })
+    assert.equal(askSecret.status, 200)
+    assert.match(((await askSecret.json()) as { answer: string }).answer, /没有资料/)
 
     const skillAgain = await fetch(`${base}/api/agent-skill`, { method: 'POST', headers: { cookie } })
     assert.equal(skillAgain.status, 200)

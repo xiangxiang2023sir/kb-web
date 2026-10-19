@@ -26,7 +26,7 @@
                     → DeepSeek（或其它 OpenAI 兼容接口）：写回答、分类、闲聊
 ```
 
-一个大脑、多个插座。网站 WebSocket 走 `runAsk`。外部 agent（飞书智能体 / Teams / 豆包）调 `/api/agent/search` 拿片段自己写答案。kb-web 自建飞书应用号不问答，只收「记一下」进待确认。
+一个大脑、多个插座。网站 WebSocket 走 `runAsk`。外部 agent（飞书智能体 / Teams / 豆包）调 `/api/agent/ask` 拿现成答案原样转发。kb-web 自建飞书应用号不问答，只收「记一下」进待确认。
 
 - 前端：`src/`（Vue 3 + Pinia + Element Plus）。`npm run dev` 是 Mock；`npm run dev:real` 走真实后端。
 - 后端：`server/src/`（Express + WebSocket）。配置 `server/config.yaml`，密钥 `server/.env`（不要提交）。
@@ -88,7 +88,7 @@
    - 模型最多起草正文；发送/改状态由路由完成
    - 邮件密钥同样进 `.env`
 5. **新通道**（飞书 webhook 已做；邮件 / Teams 同结构）：
-   - 不要改 `ask.ts` 流水线。外部 agent 绑 identity 后调 `/api/agent/search`；自建 webhook 只收消息、3 秒内 HTTP 200
+   - 不要改 `ask.ts` 流水线。外部 agent 调 `/api/agent/ask` 拿现成答案原样转发；自建 webhook 只收消息、3 秒内 HTTP 200
    - 群默认只在被 @ 时回答（`config.yaml` → `feishu.groupOnlyMention`）
    - 本机 `127.0.0.1` 收不到公网事件。飞书固定域名按下面「飞书公网回调」做；不要把 HOST 改成 `0.0.0.0`
 6. **Hermes 或其它 Agent 探路时：** 可以先用 GBrain CLI 试入库、试检索，把稳定步骤写回 `extractText` / 新路由。不要让 Agent 直接当网站大脑，也不要改 GBrain 仓库。
@@ -116,7 +116,7 @@
 6. 浏览器打开 `https://kb.<已有域名>/api/auth/me`，应返回 JSON（未登录 401 也算通）。
 7. 飞书开放平台「请求网址」填 `https://kb.<已有域名>/api/feishu/events`，保存挑战。失败先看隧道是否在跑、后端是否在 3000。
 8. `server/.env` 写 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_VERIFICATION_TOKEN` / `FEISHU_ENCRYPT_KEY`，重启后端。
-9. 网页登录 → 「绑定外部 agent」下载 Skill 交给智能体 → 在智能体里问已入库设备名，应有出处。
+9. 网页登录 → 「绑定外部 agent」下载 Skill 交给智能体 → 在智能体里问已入库设备名，应原样出现知识库答案和出处。
 
 没有域名、只想先测：`npm run tunnel`，把日志里的 `https://xxxx.trycloudflare.com/api/feishu/events` 临时填进飞书；重启会变，测通后改回固定域名。
 

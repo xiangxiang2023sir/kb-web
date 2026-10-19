@@ -157,7 +157,7 @@ async function revokeSkill() {
 
     <el-dialog v-model="bindVisible" title="绑定外部 agent" width="480px">
       <p class="bind-hint">
-        下载一份 Skill 说明（含你的钥匙），交给飞书智能体、豆包或 Cursor。它会按你这个网页账号的权限检索，答案自己写并留出处。一个账号一把钥匙。
+        下载一份 Skill 说明（含你的钥匙），交给飞书智能体、豆包或 Cursor。问设备、规程时它会调知识库，把现成答案原样发给你，不自己发挥。一个账号一把钥匙。
       </p>
       <p v-if="skillTimeText" class="bind-ttl">当前钥匙生成于 {{ skillTimeText }}。再下载会作废旧文件。</p>
       <p v-else class="bind-ttl">还没有钥匙，下载即生成。</p>

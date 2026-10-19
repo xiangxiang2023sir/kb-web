@@ -5,7 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import Busboy from 'busboy'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { assertCanConfirm, canSee, parseSlug } from './access.js'
-import { cancelAll, cancelAsk, contextOf, handleAsk } from './ask.js'
+import { cancelAll, cancelAsk, collectAskResult, contextOf, handleAsk, runAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
 import { GBrainError, captureGBrain, listGBrain, searchGBrain } from './gbrain.js'
@@ -811,6 +811,18 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     return null
   }
 
+  function agentUserOf(req: Request): User {
+    const caller = callerOf(req)
+    if (!caller) throw new HttpError(401, 'token 无效')
+    if (caller.user) return caller.user
+    const channel = String(req.body?.channel ?? caller.label).trim()
+    const externalId = String(req.body?.external_id ?? '').trim()
+    if (!externalId) throw new HttpError(400, '请用网页下载的 Skill 里的钥匙')
+    const user = db.userOfIdentity(channel, externalId)
+    if (!user) throw new HttpError(403, '这个身份还没绑定，请在网页下载 Skill 交给智能体')
+    return user
+  }
+
   // ---- agent 写入接口：个人钥匙或 AGENT_TOKENS，只能写「待确认」，绝不直接进正式库 ----
   app.post(
     '/api/agent/capture',
@@ -933,7 +945,39 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
-  // ---- 外部 agent：只读检索（服务端按身份过滤权限；只给片段+出处，不给答案） ----
+  // ---- 外部 agent：走网页同一套问答，返回完整答案供原样转发 ----
+  app.post(
+    '/api/agent/ask',
+    asyncRoute(async (req, res) => {
+      const caller = callerOf(req)
+      if (!caller) throw new HttpError(401, 'token 无效')
+      if (hitRate(`ask:${caller.user?.id ?? caller.label}`, 30)) throw new HttpError(429, '请求过于频繁（每分钟 30 次）')
+      const query = String(req.body?.query ?? '').trim()
+      if (!query) throw new HttpError(400, 'query 必填')
+      const user = agentUserOf(req)
+      const collected = collectAskResult()
+      await runAsk(
+        user,
+        db,
+        config,
+        { type: 'ask', questionId: newId('q'), question: query },
+        collected.emit,
+        undefined,
+        { publicOnly: true },
+      )
+      const out = collected.result()
+      if (out.error && !out.answer) throw new HttpError(502, out.error)
+      res.json({
+        ok: true,
+        user: user.name,
+        answer: out.answer,
+        phase: out.phase,
+        citations: out.citations,
+      })
+    }),
+  )
+
+  // ---- 外部 agent：只读检索（Hermes 等仍可拿片段；车间 Skill 走 /ask） ----
   app.post(
     '/api/agent/search',
     asyncRoute(async (req, res) => {
@@ -943,15 +987,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
 
       const query = String(req.body?.query ?? '').trim()
       if (!query) throw new HttpError(400, 'query 必填')
-
-      let user = caller.user
-      if (!user) {
-        const channel = String(req.body?.channel ?? caller.label).trim()
-        const externalId = String(req.body?.external_id ?? '').trim()
-        if (!externalId) throw new HttpError(400, '请用网页下载的 Skill 里的钥匙，或先完成绑定')
-        user = db.userOfIdentity(channel, externalId)
-        if (!user) throw new HttpError(403, '这个身份还没绑定，请在网页下载 Skill 交给智能体')
-      }
+      const user = agentUserOf(req)
 
       const limit = Math.min(Math.max(Number(req.body?.limit ?? 5), 1), 5)
       const rows = await searchGBrain(config, query, Math.max(limit * 3, 10), 0).catch(() => [])

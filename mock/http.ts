@@ -283,7 +283,7 @@ const routes: Route[] = [
       sendJson(res, 200, {
         filename: 'kb-web.SKILL.md',
         createdAt: mockSkillAt,
-        markdown: '# mock 工厂知识库\n\n把这份说明交给智能体即可。',
+        markdown: '# mock 工厂知识库\n\n问设备时调 /api/agent/ask，把 answer 原样发给用户。',
       })
     },
   },

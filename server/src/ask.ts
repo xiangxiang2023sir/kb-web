@@ -17,6 +17,44 @@ export interface AskMessage {
 
 export type AskEmit = (event: Record<string, unknown>) => void
 
+export interface AskRelay {
+  answer: string
+  error: string | null
+  phase: string
+  citations: { marker: string; title: string; slug: string }[]
+}
+
+/** 把流式问答收成一段，给外部 agent 原样转发。 */
+export function collectAskResult(): { emit: AskEmit; result: () => AskRelay } {
+  let text = ''
+  let error = ''
+  let phase = ''
+  const citations: AskRelay['citations'] = []
+  return {
+    emit(event) {
+      if (event.type === 'delta') text += String(event.text ?? '')
+      if (event.type === 'error') error = String(event.message ?? '')
+      if (event.type === 'status') phase = String(event.phase ?? '')
+      if (event.type === 'citation') {
+        const c = event.citation as { marker?: string; title?: string; id?: string } | undefined
+        if (c?.title || c?.id) {
+          citations.push({
+            marker: String(c.marker ?? `[${citations.length + 1}]`),
+            title: String(c.title ?? c.id ?? ''),
+            slug: String(c.id ?? ''),
+          })
+        }
+      }
+    },
+    result() {
+      const body = (error || text).trim()
+      const lines = citations.map((c) => `${c.marker} ${c.title}`.trim())
+      const answer = lines.length ? `${body}\n\n出处：\n${lines.join('\n')}` : body
+      return { answer, error: error || null, phase: phase || (error ? 'error' : 'done'), citations }
+    },
+  }
+}
+
 interface Run {
   abort: AbortController
   cancelled: boolean
@@ -75,6 +113,7 @@ export async function runAsk(
   msg: AskMessage,
   emit: AskEmit,
   run?: Run,
+  opts?: { publicOnly?: boolean },
 ) {
   const questionId = msg.questionId
   const abort = run?.abort ?? new AbortController()
@@ -149,7 +188,7 @@ export async function runAsk(
 
   const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
   const query = searchTermsOf(stripped)
-  const hits = await collectHits(config, user, query)
+  const hits = await collectHits(config, user, query, opts?.publicOnly === true)
 
   if (hits.length === 0) {
     const text = config.noEvidence.text
@@ -240,7 +279,7 @@ interface KeptHit {
  * 2) 候选逐条读整页正文（search 只给一片 chunk，结论常在页面后段）；
  * 3) 用「归一化 GBrain 分 + 整页命中覆盖率」重排，取前 keep 条给模型。
  */
-async function collectHits(config: AppConfig, user: User, query: string) {
+async function collectHits(config: AppConfig, user: User, query: string, publicOnly = false) {
   const want = Math.max(config.search.rerankCandidates, config.search.keep)
   const seen = new Set<string>()
   const candidates: KeptHit[] = []
@@ -250,6 +289,7 @@ async function collectHits(config: AppConfig, user: User, query: string) {
     for (const row of rows) {
       const parsed = parseSlug(row.slug)
       if (!parsed || seen.has(row.slug) || !canSee(user, parsed.field, parsed.sensitivity)) continue
+      if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) continue
       seen.add(row.slug)
       candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
       if (candidates.length >= want) break
