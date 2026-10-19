@@ -78,7 +78,7 @@ npm run tunnel
 
 1. 飞书开放平台建企业自建应用，开通收发消息权限，订阅事件 `im.message.receive_v1`
 2. 把 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` 写入 `server/.env`，重启后端
-3. 网页登录 → 侧栏「绑定外部 agent」生成绑定码，让飞书智能体调 `/api/agent/bind`。自建应用号只收「记一下」经验，不直接问答。
+3. 网页登录 → 侧栏「绑定外部 agent」下载 Skill，交给飞书智能体。自建应用号不直接问答。
 
 群里默认只在 @机器人 时回复提示。
 

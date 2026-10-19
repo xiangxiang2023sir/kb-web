@@ -117,30 +117,24 @@ kb-web 按规矩只绑 `127.0.0.1:3000`，容器经 docker0 网关进不来。�
 
 **分工**：外部 agent 负责思考和对话，我们只提供「带权限的检索」——不给答案，给片段 + 出处。
 
-**① 绑定（一次性）**
-```bash
-# 网页登录 → 「绑定外部 agent」→ 生成 6 位码
-curl -X POST http://127.0.0.1:3000/api/agent/bind \
-  -H 'Authorization: Bearer <agent token>' -H 'Content-Type: application/json' \
-  -d '{"code":"AB12CD","channel":"teams","external_id":"norman@yfpo.com"}'
-# channel: 飞书/Teams/豆包/…；external_id: 飞书 open_id、Teams UPN、其它平台的用户标识
-# 码一次性、1 小时过期；绑定后这个身份对应哪个网页账号，权限就按那个账号算
-```
+**① 网页下载 Skill（一人一把钥匙）**
 
-**② 检索**
+网页登录 →「绑定外部 agent」→ 下载 `kb-web.SKILL.md`，整份交给飞书智能体 / 豆包 / Cursor。文件里有地址、个人钥匙、怎么检索、怎么提交经验。再下载会使旧文件立刻失效。
+
+**② 检索（Skill 里的钥匙）**
 ```bash
 curl -X POST http://127.0.0.1:3000/api/agent/search \
-  -H 'Authorization: Bearer <agent token>' -H 'Content-Type: application/json' \
-  -d '{"query":"行走电机 maxRPM","channel":"teams","external_id":"norman@yfpo.com","limit":5}'
+  -H 'Authorization: Bearer kb_<个人钥匙>' -H 'Content-Type: application/json' \
+  -d '{"query":"行走电机 maxRPM","limit":5}'
 # → {ok, user, hits:[{slug,title,marker,field,sensitivity,snippet}], noEvidence}
-# 只有片段与出处，没有答案；服务端按身份过滤领域/密级；每个 token 每分钟 60 次
+# 只有片段与出处，没有答案；权限按这个网页账号算；不要带 channel / external_id
 ```
 
 **安全口径**
-- 两个 token 体系：`AGENT_TOKENS`（写入 + 绑定 + 检索）、每来源一个，泄露改一行重启即吊销
-- 未绑定的身份一律 403，不会退化成"匿名可查"
-- 内容出网分级：对外部云平台只放 public/internal，机密/绝密不要挂外部 agent
-- 飞书智能体 / Teams / 豆包一律走 `/api/bind-code` + `/api/agent/bind`；kb-web 自建飞书应用号不再问答，只收「记一下」进待确认
+- 车间每人一把 `kb_` 钥匙（写在 Skill 里）；`AGENT_TOKENS` 只给 Hermes / 小A 这类服务端脚本
+- 没有钥匙或钥匙已作废一律 401，不会退化成匿名可查
+- 内容出网分级：对外部云平台只放 public/internal
+- kb-web 自建飞书应用号不再问答，只提示用智能体；「记一下」仍可进待确认
 
 ## 飞书里提交经验/日报
 

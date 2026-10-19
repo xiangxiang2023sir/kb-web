@@ -100,7 +100,7 @@ async function botId(): Promise<string> {
 }
 
 const POINT_TO_AGENT =
-  '提问请用飞书智能体（不是这个应用号）。\n网页登录 →「绑定外部 agent」生成绑定码，智能体调 /api/agent/bind 绑好后即可按你的权限检索。\n记录经验发：记一下：<内容>'
+  '提问请用飞书智能体（不是这个应用号）。\n网页登录 →「绑定外部 agent」下载 Skill 交给智能体即可按你的权限检索。\n记录经验也可让智能体提交，或在这里发：记一下：<内容>'
 
 export async function handleFeishuEvent(
   db: KbDb,

@@ -97,7 +97,7 @@ test('飞书应用号不再本体问答，经验走外部身份', async () => {
 
     sent.length = 0
     await handleFeishuEvent(db, config, textEvent('ou_1', '帮助'), send)
-    assert.match(sent[0] ?? '', /\/api\/agent\/bind/)
+    assert.match(sent[0] ?? '', /下载 Skill/)
 
     sent.length = 0
     await handleFeishuEvent(db, config, textEvent('ou_1', '照片', { messageType: 'image' }), send)
@@ -202,11 +202,11 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
       body: JSON.stringify({ username: 'wang', password: '123456' }),
     })
     const cookie = login.headers.getSetCookie()[0].split(';')[0]
-    const codeRes = await fetch(`${base}/api/bind-code`, { method: 'POST', headers: { cookie } })
-    assert.equal(codeRes.status, 200)
-    const issued = (await codeRes.json()) as { code: string; expiresIn: number }
-    assert.equal(issued.code.length, 6)
-    assert.equal(issued.expiresIn, 3600)
+    const skillRes = await fetch(`${base}/api/agent-skill`, { method: 'POST', headers: { cookie } })
+    assert.equal(skillRes.status, 200)
+    const issued = (await skillRes.json()) as { filename: string; markdown: string }
+    assert.equal(issued.filename, 'kb-web.SKILL.md')
+    assert.match(issued.markdown, /Bearer kb_/)
 
     const gone = await fetch(`${base}/api/feishu/bind-code`, { method: 'POST', headers: { cookie } })
     assert.equal(gone.status, 404)

@@ -285,13 +285,21 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     })
     assert.equal((await agentAgain.json()).duplicate, true)
 
-    // 通用绑定 + 外部 agent 检索（带权限过滤）
-    const bc = await fetch(`${base}/api/bind-code`, { method: 'POST', headers: { cookie } })
-    assert.equal(bc.status, 200)
-    const bindCode = ((await bc.json()) as { code: string }).code
-    assert.ok(bindCode && bindCode.length >= 4)
+    // 个人 Skill 钥匙：下载即绑定，检索不再要 channel
+    const beforeSkill = await fetch(`${base}/api/agent-skill`, { headers: { cookie } })
+    assert.equal(beforeSkill.status, 200)
+    assert.equal((await beforeSkill.json() as { createdAt: string | null }).createdAt, null)
 
-    // 未绑定身份先检索 → 403
+    const skillRes = await fetch(`${base}/api/agent-skill`, { method: 'POST', headers: { cookie } })
+    assert.equal(skillRes.status, 200)
+    const skill = (await skillRes.json()) as { filename: string; markdown: string; createdAt: string }
+    assert.equal(skill.filename, 'kb-web.SKILL.md')
+    const tokenMatch = /Bearer (kb_[a-f0-9]+)/.exec(skill.markdown)
+    assert.ok(tokenMatch, 'Skill 里应有个人钥匙')
+    const userToken = tokenMatch![1]
+    assert.ok(skill.markdown.includes('/api/agent/search'))
+    assert.ok(!skill.markdown.includes('"external_id"'))
+
     const unbound = await fetch(`${base}/api/agent/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
@@ -299,19 +307,10 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     })
     assert.equal(unbound.status, 403)
 
-    // 用码绑定 Teams 身份
-    const bindRes = await fetch(`${base}/api/agent/bind`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ code: bindCode, channel: 'teams', external_id: 'norman@example.com' }),
-    })
-    assert.equal(bindRes.status, 200)
-
-    // 绑定后检索：只回命中/无依据文案，不生成答案
     const searchRes = await fetch(`${base}/api/agent/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ query: '变频器', channel: 'teams', external_id: 'norman@example.com' }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ query: '变频器' }),
     })
     assert.equal(searchRes.status, 200)
     const searchBody = (await searchRes.json()) as { hits: { sensitivity?: string }[]; noEvidence: string | null }
@@ -321,35 +320,31 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
 
     const secretRes = await fetch(`${base}/api/agent/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ query: '绝密', channel: 'teams', external_id: 'norman@example.com' }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ query: '绝密' }),
     })
     assert.equal(secretRes.status, 200)
     const secretBody = (await secretRes.json()) as { hits: unknown[]; noEvidence: string | null }
     assert.equal(secretBody.hits.length, 0)
     assert.ok(secretBody.noEvidence)
 
-    // 同一用户再绑飞书，不应清掉 Teams
-    const bc2 = await fetch(`${base}/api/bind-code`, { method: 'POST', headers: { cookie } })
-    const code2 = ((await bc2.json()) as { code: string }).code
-    const bindFeishu = await fetch(`${base}/api/agent/bind`, {
+    const skillAgain = await fetch(`${base}/api/agent-skill`, { method: 'POST', headers: { cookie } })
+    assert.equal(skillAgain.status, 200)
+    const oldKey = await fetch(`${base}/api/agent/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ code: code2, channel: 'feishu', external_id: 'ou_owner' }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ query: '变频器' }),
     })
-    assert.equal(bindFeishu.status, 200)
-    const ids = await fetch(`${base}/api/bind-code/identities`, { headers: { cookie } })
-    const ident = (await ids.json()) as { channel: string }[]
-    assert.ok(ident.some((i) => i.channel === 'teams'))
-    assert.ok(ident.some((i) => i.channel === 'feishu'))
+    assert.equal(oldKey.status, 401)
 
-    // 绑定码一次性：再用一次应失败
-    const reuse = await fetch(`${base}/api/agent/bind`, {
+    const wangLogin = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ code: bindCode, channel: 'teams', external_id: 'other@example.com' }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'wang', password: '123456' }),
     })
-    assert.equal(reuse.status, 400)
+    const wangCookie = wangLogin.headers.getSetCookie()[0].split(';')[0]
+    const wangSkill = await fetch(`${base}/api/agent-skill`, { method: 'POST', headers: { cookie: wangCookie } })
+    assert.equal(wangSkill.status, 200)
 
     const told = await ask(base, cookie, '我改成了 0.5 米每秒，记录一下')
     assert.ok(told.some((e) => e.type === 'status' && e.phase === 'acknowledged'), '告知应走确认分支')

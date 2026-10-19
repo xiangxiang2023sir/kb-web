@@ -1,8 +1,12 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { Field, Role, Sensitivity, User } from './config.js'
+
+function hashUserAgentKey(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('hex')
@@ -391,6 +395,43 @@ export class KbDb {
     this.run(`DELETE FROM agent_identities WHERE user_id = ? AND channel = ? AND external_id = ?`, userId, channel, externalId)
   }
 
+  /** 一人一把外部钥匙：下载 Skill 时轮换，旧文件立刻失效。 */
+  issueUserAgentKey(userId: string): { token: string; createdAt: string } {
+    const token = `kb_${randomBytes(24).toString('hex')}`
+    const createdAt = new Date().toISOString()
+    this.run(`DELETE FROM user_agent_keys WHERE user_id = ?`, userId)
+    this.run(
+      `INSERT INTO user_agent_keys (user_id, token_hash, created_at) VALUES (?, ?, ?)`,
+      userId,
+      hashUserAgentKey(token),
+      createdAt,
+    )
+    return { token, createdAt }
+  }
+
+  userOfAgentKey(token: string): User | null {
+    const key = String(token || '').trim()
+    if (!key.startsWith('kb_')) return null
+    const row = this.one(
+      `SELECT u.id, u.name, u.role, u.field, u.status
+       FROM user_agent_keys k JOIN users u ON u.id = k.user_id
+       WHERE k.token_hash = ?`,
+      hashUserAgentKey(key),
+    )
+    if (!row) return null
+    if (String(row.status ?? 'approved') !== 'approved') return null
+    return { id: String(row.id), name: String(row.name), role: row.role as Role, field: (row.field ?? null) as Field | null }
+  }
+
+  userAgentKeyMeta(userId: string): { createdAt: string } | null {
+    const row = this.one(`SELECT created_at FROM user_agent_keys WHERE user_id = ?`, userId)
+    return row ? { createdAt: String(row.created_at) } : null
+  }
+
+  revokeUserAgentKey(userId: string) {
+    this.run(`DELETE FROM user_agent_keys WHERE user_id = ?`, userId)
+  }
+
   // ---- 注册 / 审批 ----
 
   createPendingUser(row: {
@@ -434,6 +475,7 @@ export class KbDb {
     this.run(`DELETE FROM auth_sessions WHERE user_id = ?`, id)
     this.run(`DELETE FROM agent_identities WHERE user_id = ?`, id)
     this.run(`DELETE FROM bind_codes WHERE user_id = ?`, id)
+    this.run(`DELETE FROM user_agent_keys WHERE user_id = ?`, id)
     this.run(`DELETE FROM users WHERE id = ?`, id)
   }
 
@@ -720,6 +762,11 @@ CREATE TABLE IF NOT EXISTS agent_identities (
   user_id TEXT NOT NULL,
   bound_at TEXT NOT NULL,
   PRIMARY KEY (channel, external_id)
+);
+CREATE TABLE IF NOT EXISTS user_agent_keys (
+  user_id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS feishu_bindings (
   open_id TEXT PRIMARY KEY,

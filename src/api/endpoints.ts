@@ -5,7 +5,7 @@
  *
  * 后端实现参考（详见 AGENTS.md）：
  * - /ws ask           → 闲聊或 gbrain search → DeepSeek 流式生成
- * - /feishu/events    → 飞书 webhook（经验「记一下」；问答走外部智能体）
+ * - /feishu/events    → 飞书 webhook（经验「记一下」；问答走外部智能体 Skill）
  * - /admin/docs/*     → extractText 解析 → 分类 → gbrain capture 入库
  * - /admin/health/run → gbrain orphans 等
  */
@@ -68,21 +68,13 @@ export const chatApi = {
     http
       .post<{ ok: boolean; id?: string; duplicate?: boolean }>('/chat/save-to-kb', payload)
       .then((r) => r.data),
-  /** 生成一次性绑定码：发给飞书/Teams/豆包等外部 agent，让它调 /api/agent/bind 完成绑定 */
-  bindCode: () => http.post<{ code: string; expiresIn: number }>('/bind-code').then((r) => r.data),
-  /** 我已经绑定的外部身份 */
-  identities: () =>
-    http
-      .get<{ channel: string; externalId: string; boundAt: string }[]>('/bind-code/identities')
-      .then((r) => r.data),
-  /** 生成「给智能体的接入说明」markdown（含令牌，仅主人可用） */
-  agentKit: (payload: { agent?: string; channel?: string; code?: string }) =>
-    http
-      .post<{ filename: string; agent: string; channel: string; markdown: string }>('/bind-code/kit', payload)
-      .then((r) => r.data),
-  /** 解绑某个外部身份 */
-  unbind: (channel: string, externalId: string) =>
-    http.post('/bind-code/unbind', { channel, externalId }).then((r) => r.data),
+  /** 当前这把外部钥匙是何时生成的（没有则 createdAt 为空） */
+  skillMeta: () => http.get<{ createdAt: string | null }>('/agent-skill').then((r) => r.data),
+  /** 下载 Skill：生成新钥匙，旧文件立刻作废 */
+  downloadSkill: () =>
+    http.post<{ filename: string; markdown: string; createdAt: string }>('/agent-skill').then((r) => r.data),
+  /** 作废当前钥匙 */
+  revokeSkill: () => http.delete('/agent-skill').then((r) => r.data),
 }
 
 // ---------- 问题队列（用户侧） ----------

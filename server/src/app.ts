@@ -12,6 +12,7 @@ import { GBrainError, captureGBrain, listGBrain, searchGBrain } from './gbrain.j
 import { runHealth } from './health.js'
 import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
 import { agentNameOf, bearerOf, parseAgentTokens, type AgentToken } from './agentTokens.js'
+import { buildAgentSkillMarkdown } from './agentSkill.js'
 import { classifyText } from './llm.js'
 import {
   challengeOf,
@@ -794,12 +795,29 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
-  // ---- agent 写入接口：每个 agent 一个 token，只能写「待确认」，绝不直接进正式库 ----
+  function publicBase(req: Request): string {
+    const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '127.0.0.1:3000').split(',')[0].trim()
+    const proto = String(req.headers['x-forwarded-proto'] ?? (req.secure ? 'https' : 'http')).split(',')[0].trim()
+    return `${proto}://${host}`
+  }
+
+  function callerOf(req: Request): { label: string; user: User | null } | null {
+    const token = bearerOf(req.headers.authorization)
+    if (!token) return null
+    const platform = agentNameOf(agentTokens, token)
+    if (platform) return { label: platform, user: null }
+    const user = db.userOfAgentKey(token)
+    if (user) return { label: user.name, user }
+    return null
+  }
+
+  // ---- agent 写入接口：个人钥匙或 AGENT_TOKENS，只能写「待确认」，绝不直接进正式库 ----
   app.post(
     '/api/agent/capture',
     asyncRoute(async (req, res) => {
-      const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
-      if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
+      const caller = callerOf(req)
+      if (!caller) throw new HttpError(401, 'token 无效')
+      const agent = caller.label
 
       const title = String(req.body?.title ?? '').trim()
       const content = String(req.body?.content ?? '').trim()
@@ -852,7 +870,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
-  // ---- 通用绑定码：生成 / 查已绑 / 解绑（替换原来只能绑飞书的那套） ----
+  // Hermes 脚本仍可用绑定码；网页改走「下载 Skill」
   app.post('/api/bind-code', requireUser, (_req, res) => {
     res.json(db.issueBindCode(userOf(res)!.id))
   })
@@ -866,87 +884,36 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     res.json({ ok: true })
   })
 
-  // ---- 生成「给智能体的接入说明」文件（含令牌，仅主人可下） ----
+  // ---- 一人一份 Skill：下载即轮换钥匙，旧文件作废 ----
+  app.get('/api/agent-skill', requireUser, (_req, res) => {
+    const user = userOf(res)!
+    if (user.role === 'guest') return res.status(403).json({ message: '游客不能绑定外部 agent' })
+    res.json(db.userAgentKeyMeta(user.id) ?? { createdAt: null })
+  })
+
   app.post(
-    '/api/bind-code/kit',
-    requireOwner,
+    '/api/agent-skill',
+    requireUser,
     asyncRoute(async (req, res) => {
-      const agentName = String(req.body?.agent ?? agentTokens[0]?.name ?? '').trim()
-      const token = agentTokens.find((a) => a.name === agentName)?.token
-      if (!token) throw new HttpError(400, '没有可用的 agent token（先在 server/.env 的 AGENT_TOKENS 配一个）')
-      const channel = String(req.body?.channel ?? agentName).trim() || agentName
-      const code = String(req.body?.code ?? '').trim()
-      const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'kb.jixiangxiang9.website').split(',')[0].trim()
-      const proto = String(req.headers['x-forwarded-proto'] ?? (req.secure ? 'https' : 'http')).split(',')[0].trim()
-      const base = `${proto}://${host}`
       const user = userOf(res)!
-
-      const md = [
-        '# 接入 kb-web 知识库（给智能体的说明）',
-        '',
-        '> ⚠️ 本文件含访问令牌，等同钥匙：别外传、别提交到 git、别贴进公开群。',
-        '',
-        '## 你的角色',
-        '你负责**思考和对话**；知识由 kb-web 提供。检索只拿到「片段 + 出处」，**答案由你写，并保留 [1][2] 出处**，不要编。',
-        '',
-        '## 连接信息',
-        `- 服务地址：\`${base}\``,
-        `- 认证：\`Authorization: Bearer ${token}\``,
-        `- 渠道标识（channel）：\`${channel}\``,
-        '',
-        '## 第一步：绑定身份（每个用户只做一次）',
-        '```',
-        `POST ${base}/api/agent/bind`,
-        `Authorization: Bearer ${token}`,
-        'Content-Type: application/json',
-        '',
-        JSON.stringify({ code: code || '<网页上生成的 6 位绑定码>', channel, external_id: '<该用户的唯一标识：飞书 open_id / Teams UPN / 平台用户 id>' }, null, 0),
-        '```',
-        '返回 `{"ok":true,...}` 即绑好。绑定码一次性、1 小时过期；一个码只能绑一个身份。',
-        '',
-        '## 第二步：提问时检索',
-        '```',
-        `POST ${base}/api/agent/search`,
-        `Authorization: Bearer ${token}`,
-        'Content-Type: application/json',
-        '',
-        JSON.stringify({ query: '<用户问题>', channel, external_id: '<第一步用的同一个标识>', limit: 5 }, null, 0),
-        '```',
-        '返回：',
-        '```json',
-        '{"ok":true,"user":"<网页账号名>","hits":[{"slug":"...","title":"...","marker":"[1]","field":"electrical","sensitivity":"internal","snippet":"..."}],"noEvidence":null}',
-        '```',
-        '- 只有片段和出处，**没有答案**；请你根据片段写答案，正文里保留 `[1]` `[2]` 这样的出处标记',
-        '- 返回 `noEvidence` 时照它回答「没有资料」，不要推测',
-        '- 未绑定 → 403；每个令牌每分钟最多 60 次',
-        '',
-        "## 第三步：提交经验 / 日报（会进「待确认」等人批）",
-        "",
-        "用户口述了经验、踩坑、日终总结时，调这个接口存进来（原文照录，不要自己改写要点）：",
-        "",
-        '```bash',
-        `curl -X POST ${base}/api/agent/capture \\`,
-        '  -H "Authorization: Bearer <令牌>" -H "Content-Type: application/json" \\',
-        '-d \'{"title":"行走电机 maxRPM 要按铭牌算","content":"## 适用前提……","kind":"经验","field":"electrical"}\'',
-        '```',
-        "",
-        "- 返回 {\"ok\":true,\"status\":\"pending\"} = 已进待确认；要告诉用户「管理员确认后才进正式知识库」",
-        "- kind：经验 / 日报；field：electrical / dispatch / mechanical",
-        "- 同标题重复提交返回 duplicate:true，不要重复刷",
-        "- 密级由服务端锁死 internal，不用也不许自己声明",
-        "- 正文建议四段：适用前提 / 现象 / 结论做法 / 证据，400 字内",
-        "",
-        '## 必须遵守',
-        '1. 权限由服务端按「绑定的网页账号」过滤领域与密级，**不要尝试绕过**',
-        '2. 机密 / 绝密内容不要发到外部云平台；对外只放 public / internal',
-        '3. 绑定码和令牌都是钥匙：令牌泄露请让管理员在 `server/.env` 的 `AGENT_TOKENS` 换掉',
-        '',
-        `<!-- 生成人：${user.name}（${user.role}）｜生成时间：${new Date().toISOString()}｜agent：${agentName} -->`,
-      ].join('\n')
-
-      res.json({ filename: `kb-web-接入说明-${agentName}.md`, agent: agentName, channel, markdown: md })
+      if (user.role === 'guest') throw new HttpError(403, '游客不能绑定外部 agent')
+      if (hitRate(`skill:${user.id}`, 5)) throw new HttpError(429, '下载过于频繁')
+      const issued = db.issueUserAgentKey(user.id)
+      const markdown = buildAgentSkillMarkdown({
+        base: publicBase(req),
+        token: issued.token,
+        userName: user.name,
+      })
+      res.json({ filename: 'kb-web.SKILL.md', markdown, createdAt: issued.createdAt })
     }),
   )
+
+  app.delete('/api/agent-skill', requireUser, (_req, res) => {
+    const user = userOf(res)!
+    if (user.role === 'guest') return res.status(403).json({ message: '游客不能绑定外部 agent' })
+    db.revokeUserAgentKey(user.id)
+    res.json({ ok: true })
+  })
 
   // ---- 外部 agent：用绑定码把我的身份绑到网页账号 ----
   app.post(
@@ -970,18 +937,21 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   app.post(
     '/api/agent/search',
     asyncRoute(async (req, res) => {
-      const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
-      if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
-      if (hitRate(`search:${agent}`, 60)) throw new HttpError(429, '请求过于频繁（每分钟 60 次）')
+      const caller = callerOf(req)
+      if (!caller) throw new HttpError(401, 'token 无效')
+      if (hitRate(`search:${caller.user?.id ?? caller.label}`, 60)) throw new HttpError(429, '请求过于频繁（每分钟 60 次）')
 
       const query = String(req.body?.query ?? '').trim()
-      const channel = String(req.body?.channel ?? agent).trim()
-      const externalId = String(req.body?.external_id ?? '').trim()
       if (!query) throw new HttpError(400, 'query 必填')
-      if (!externalId) throw new HttpError(400, 'external_id 必填（先调 /api/agent/bind 绑定）')
 
-      const user = db.userOfIdentity(channel, externalId)
-      if (!user) throw new HttpError(403, '这个身份还没绑定，请先在网页生成绑定码完成绑定')
+      let user = caller.user
+      if (!user) {
+        const channel = String(req.body?.channel ?? caller.label).trim()
+        const externalId = String(req.body?.external_id ?? '').trim()
+        if (!externalId) throw new HttpError(400, '请用网页下载的 Skill 里的钥匙，或先完成绑定')
+        user = db.userOfIdentity(channel, externalId)
+        if (!user) throw new HttpError(403, '这个身份还没绑定，请在网页下载 Skill 交给智能体')
+      }
 
       const limit = Math.min(Math.max(Number(req.body?.limit ?? 5), 1), 5)
       const rows = await searchGBrain(config, query, Math.max(limit * 3, 10), 0).catch(() => [])

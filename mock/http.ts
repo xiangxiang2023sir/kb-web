@@ -134,6 +134,7 @@ function match(pattern: string, path: string): Record<string, string> | null {
 let seq = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++seq}`
 const now = () => new Date().toISOString()
+let mockSkillAt: string | null = null
 
 const routes: Route[] = [
   // ---------- 认证 ----------
@@ -266,39 +267,33 @@ const routes: Route[] = [
   },
 
   {
-    method: 'POST',
-    pattern: '/bind-code',
-    handler: ({ res }) => {
-      const code = Math.random().toString(16).slice(2, 8).toUpperCase().padEnd(6, 'A')
-      sendJson(res, 200, { code, expiresIn: 3600 })
-    },
-  },
-  {
     method: 'GET',
-    pattern: '/bind-code/identities',
-    handler: ({ res }) => {
-      sendJson(res, 200, [])
+    pattern: '/agent-skill',
+    handler: ({ user, res }) => {
+      if (user?.role === 'guest') return sendJson(res, 403, { message: '游客不能绑定外部 agent' })
+      sendJson(res, 200, { createdAt: mockSkillAt })
     },
   },
   {
     method: 'POST',
-    pattern: '/bind-code/unbind',
-    handler: ({ res }) => {
-      sendJson(res, 200, { ok: true })
-    },
-  },
-  {
-    method: 'POST',
-    pattern: '/bind-code/kit',
-    role: 'owner',
-    handler: async ({ req, res }) => {
-      const body = await readBody(req)
+    pattern: '/agent-skill',
+    handler: ({ user, res }) => {
+      if (user?.role === 'guest') return sendJson(res, 403, { message: '游客不能绑定外部 agent' })
+      mockSkillAt = now()
       sendJson(res, 200, {
-        filename: 'kb-web-接入说明-mock.md',
-        agent: 'mock',
-        channel: String(body.channel ?? 'feishu'),
-        markdown: '# mock 接入说明',
+        filename: 'kb-web.SKILL.md',
+        createdAt: mockSkillAt,
+        markdown: '# mock 工厂知识库\n\n把这份说明交给智能体即可。',
       })
+    },
+  },
+  {
+    method: 'DELETE',
+    pattern: '/agent-skill',
+    handler: ({ user, res }) => {
+      if (user?.role === 'guest') return sendJson(res, 403, { message: '游客不能绑定外部 agent' })
+      mockSkillAt = null
+      sendJson(res, 200, { ok: true })
     },
   },
 

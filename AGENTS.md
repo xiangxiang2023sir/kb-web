@@ -45,10 +45,11 @@
 ## agent 写入接口（2026-10-19）
 
 `POST /api/agent/capture`：给**不在本机/在容器里**的 agent 用的知识入库入口。
-- 鉴权：`Authorization: Bearer <token>`，token 在 `server/.env` 的 `AGENT_TOKENS`（名字:token,逗号分隔）
+- 鉴权：网页下载的 Skill 个人钥匙（`kb_…`），或 `server/.env` 的 `AGENT_TOKENS`（Hermes / 小A）
 - 入参：`{title, content(markdown), field?, kind?}` → **只写「待确认」**，永远不直接进正式库
 - 去重：同标题返回 `duplicate:true`；密级强制 internal；内容上限 200KB
 - 与网页「对话沉淀」、`server/scripts/submit-summary.ts` 三者殊途同归：都落在待确认
+- 车间人：网页「绑定外部 agent」下载 `kb-web.SKILL.md` 交给智能体；一人一把钥匙，再下载旧文件作废
 
 ## 硬规则（改功能时不要破）
 
@@ -115,7 +116,7 @@
 6. 浏览器打开 `https://kb.<已有域名>/api/auth/me`，应返回 JSON（未登录 401 也算通）。
 7. 飞书开放平台「请求网址」填 `https://kb.<已有域名>/api/feishu/events`，保存挑战。失败先看隧道是否在跑、后端是否在 3000。
 8. `server/.env` 写 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_VERIFICATION_TOKEN` / `FEISHU_ENCRYPT_KEY`，重启后端。
-9. 网页登录 → 「绑定外部 agent」生成码 → 智能体调 `/api/agent/bind` → 在智能体里问已入库设备名，应有出处。
+9. 网页登录 → 「绑定外部 agent」下载 Skill 交给智能体 → 在智能体里问已入库设备名，应有出处。
 
 没有域名、只想先测：`npm run tunnel`，把日志里的 `https://xxxx.trycloudflare.com/api/feishu/events` 临时填进飞书；重启会变，测通后改回固定域名。
 
