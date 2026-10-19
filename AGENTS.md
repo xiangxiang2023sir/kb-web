@@ -42,6 +42,14 @@
 
 入库：上传 → `extractText()` 抽正文 → 模型建议领域/密级 → 人确认 → `gbrain capture --file --slug --force`。
 
+## agent 写入接口（2026-10-19）
+
+`POST /api/agent/capture`：给**不在本机/在容器里**的 agent 用的知识入库入口。
+- 鉴权：`Authorization: Bearer <token>`，token 在 `server/.env` 的 `AGENT_TOKENS`（名字:token,逗号分隔）
+- 入参：`{title, content(markdown), field?, kind?}` → **只写「待确认」**，永远不直接进正式库
+- 去重：同标题返回 `duplicate:true`；密级强制 internal；内容上限 200KB
+- 与网页「对话沉淀」、`server/scripts/submit-summary.ts` 三者殊途同归：都落在待确认
+
 ## 硬规则（改功能时不要破）
 
 1. **模型只写字，不选工具、不发邮件、不改权限。** 副作用（写库、发信、改工单状态）走后端明确的路由。

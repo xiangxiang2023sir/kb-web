@@ -11,6 +11,7 @@ import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
 import { GBrainError, captureGBrain, listGBrain } from './gbrain.js'
 import { runHealth } from './health.js'
 import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
+import { agentNameOf, bearerOf, parseAgentTokens, type AgentToken } from './agentTokens.js'
 import { classifyText } from './llm.js'
 import {
   challengeOf,
@@ -112,6 +113,7 @@ export interface Started {
 export async function start(opts?: { dataDir?: string; port?: number; host?: string }): Promise<Started> {
   loadEnvFile()
   const config = loadConfig()
+  const agentTokens: AgentToken[] = parseAgentTokens(process.env.AGENT_TOKENS)
   const dataDir = opts?.dataDir ?? join(serverRoot, 'data')
   mkdirSync(dataDir, { recursive: true })
   const db = openDb(join(dataDir, 'kb.sqlite'))
@@ -720,6 +722,49 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       } finally {
         res.end()
       }
+    }),
+  )
+
+  // ---- agent 写入接口：每个 agent 一个 token，只能写「待确认」，绝不直接进正式库 ----
+  app.post(
+    '/api/agent/capture',
+    asyncRoute(async (req, res) => {
+      const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
+      if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
+
+      const title = String(req.body?.title ?? '').trim()
+      const content = String(req.body?.content ?? '').trim()
+      const kind = String(req.body?.kind ?? '经验').trim().slice(0, 12) || '经验'
+      if (!title) throw new HttpError(400, 'title 必填')
+      if (!content) throw new HttpError(400, 'content 必填')
+      if (content.length > 200_000) throw new HttpError(413, '内容过大（上限 200KB）')
+
+      const field: Field = isField(req.body?.field) ? req.body.field : config.defaults.field
+      // agent 写入一律不超过 internal：要更高密级，由人在「待确认」里改
+      const sensitivity: Sensitivity = 'internal'
+      const fullTitle = `[${kind}] ${title}`.slice(0, 120)
+
+      const existed = db
+        .listDocs({ keyword: fullTitle, hideTopSecret: false })
+        .find((d) => d.title === fullTitle)
+      if (existed) {
+        res.json({ ok: true, duplicate: true, id: existed.id })
+        return
+      }
+
+      const id = newId('d')
+      db.insertDoc({
+        id,
+        title: fullTitle,
+        field,
+        sensitivity,
+        status: 'pending',
+        suggestedField: field,
+        suggestedSensitivity: sensitivity,
+        content: `${content}\n\n---\n\n- 来源：agent 写入（${agent}）\n- 时间：${new Date().toISOString()}`,
+        updatedAt: new Date().toISOString(),
+      })
+      res.json({ ok: true, id, title: fullTitle, field, sensitivity, status: 'pending' })
     }),
   )
 

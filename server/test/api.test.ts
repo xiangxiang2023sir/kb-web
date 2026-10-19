@@ -119,6 +119,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
   process.env.DEEPSEEK_API_KEY = ''
   // 本机 server/.env 里可能有真实的 GBRAIN_BIN，测试必须用 fake，且要先于 start() 里的 loadEnvFile
   process.env.GBRAIN_BIN = 'node'
+  process.env.AGENT_TOKENS = 'tester:test-token-123'
   const server = await start({ dataDir: dir, port: 0, host: '127.0.0.1' })
   const base = `http://127.0.0.1:${server.port}`
   try {
@@ -202,6 +203,46 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     assert.ok(events.some((e) => e.type === 'status' && e.phase === 'no_evidence'))
     assert.ok(events.some((e) => e.type === 'done'))
     assert.ok(events.some((e) => e.type === 'session' && typeof e.sessionId === 'string'))
+
+    // agent 写入接口：token 校验 + 只写待确认
+    const noToken = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'x', content: 'y' }),
+    })
+    assert.equal(noToken.status, 401)
+
+    const badToken = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer wrong' },
+      body: JSON.stringify({ title: 'x', content: 'y' }),
+    })
+    assert.equal(badToken.status, 401)
+
+    const noContent = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ title: '只有标题' }),
+    })
+    assert.equal(noContent.status, 400)
+
+    const agentIn = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ title: 'agent 写入测试', content: '现场经验一条', field: 'electrical', kind: '经验' }),
+    })
+    assert.equal(agentIn.status, 200)
+    const agentBody = (await agentIn.json()) as { id: string; status: string; title: string }
+    assert.equal(agentBody.status, 'pending')
+    assert.ok(agentBody.title.startsWith('[经验]'))
+
+    // 同标题第二次应去重
+    const agentAgain = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ title: 'agent 写入测试', content: '现场经验一条', field: 'electrical', kind: '经验' }),
+    })
+    assert.equal((await agentAgain.json()).duplicate, true)
 
     const told = await ask(base, cookie, '我改成了 0.5 米每秒，记录一下')
     assert.ok(told.some((e) => e.type === 'status' && e.phase === 'acknowledged'), '告知应走确认分支')

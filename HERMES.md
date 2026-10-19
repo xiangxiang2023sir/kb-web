@@ -72,3 +72,19 @@ gbrain search <关键词> --source xiaoa-work
 
 - 现有工作脑：`xiaoa-work`（小A）、`xiaoc-work`（小C）；公共库 `default` 不收未审核内容
 - ⚠️ 容器/跨机里的 agent 跑不了 gbrain CLI（无 CLI、目录未挂载）⇒ 需宿主机侧执行，或后续走 kb-web 的 agent 写入接口
+
+## agent 写入接口（跨机 / 容器里的 agent 用这个）
+
+不用装 gbrain CLI，也不要用网页登录态。每个 agent 一个 token（`server/.env` 的 `AGENT_TOKENS=名字:token,名字:token`）。
+
+```bash
+curl -X POST http://<kb-web 地址>/api/agent/capture \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <该 agent 的 token>' \
+  -d '{"title":"2026-10-19 日终总结","content":"<markdown 正文>","field":"dispatch","kind":"日终总结"}'
+```
+
+- 返回 `{ok:true,id,status:"pending"}` —— **永远进「待确认」**，人确认后才进正式库
+- 同标题自动去重（返回 `duplicate:true`）
+- 密级强制 `internal`（要更高密级由人在待确认里改）；内容上限 200KB
+- 容器里访问宿主机后端：`http://172.17.0.1:3000`（docker 默认网桥网关）
