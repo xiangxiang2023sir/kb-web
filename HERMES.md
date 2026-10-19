@@ -88,3 +88,16 @@ curl -X POST http://<kb-web 地址>/api/agent/capture \
 - 同标题自动去重（返回 `duplicate:true`）
 - 密级强制 `internal`（要更高密级由人在待确认里改）；内容上限 200KB
 - 容器里访问宿主机后端：`http://172.17.0.1:3000`（docker 默认网桥网关）
+
+## 容器里的 agent 怎么连（docker 网桥转发）
+
+kb-web 按规矩只绑 `127.0.0.1:3000`，容器经 docker0 网关进不来。用一个只绑网桥的转发解决：
+
+- 脚本：`server/scripts/docker-bridge.py`（Python 标准库，无依赖）
+- 服务：`kb-web-bridge.service`（user 级，开机自启，随 kb-web 重启）
+  ```bash
+  systemctl --user status kb-web-bridge     # 看状态
+  ss -lnt | grep 3000                       # 应有 127.0.0.1:3000（kb-web）和 172.17.0.1:3000（桥）
+  ```
+- 容器内访问：`http://172.17.0.1:3000`（实测 `docker exec` 里 curl 通）
+- 安全性：只监听 docker0 网桥地址，**局域网和公网都到不了**；kb-web 的绑定没变（仍是 127.0.0.1）
