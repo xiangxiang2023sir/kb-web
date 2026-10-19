@@ -755,8 +755,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       // 查重提示：先在公共库里找相似页，命中就把"可能重复"写进正文，提醒审阅人并入而不是另开新页
       let similar: { slug: string; title: string }[] = []
       try {
-        const hits = await searchGBrain(config, title, 3)
-        similar = hits.map((h) => ({ slug: h.slug, title: String((h as { title?: string }).title ?? h.slug) }))
+        const hits = await searchGBrain(config, title, 3, 0)
+        // 只取公开/内部级：绝密页的标题不能出现在待确认正文里（审阅人可能看不到那份）
+        similar = hits
+          .filter((h) => !/\/top_secret\//.test(String(h.slug)))
+          .map((h) => ({ slug: h.slug, title: String((h as { title?: string }).title ?? h.slug) }))
       } catch {
         similar = []
       }
