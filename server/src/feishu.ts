@@ -1,7 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import { newId, type KbDb } from './db.js'
-import { runAsk, type AskEmit } from './ask.js'
-import type { AppConfig, User } from './config.js'
+import type { AppConfig } from './config.js'
 
 export function feishuConfigured(): boolean {
   return Boolean(process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET && process.env.FEISHU_VERIFICATION_TOKEN)
@@ -58,27 +57,6 @@ function textOf(content: string): string {
   }
 }
 
-export function collectAnswer(): { emit: AskEmit; text: () => string; error: () => string; sessionId: () => string | undefined } {
-  let text = ''
-  let error = ''
-  let sessionId: string | undefined
-  const citations: string[] = []
-  return {
-    emit(event) {
-      if (event.type === 'delta') text += String(event.text ?? '')
-      if (event.type === 'error') error = String(event.message ?? '')
-      if (event.type === 'session') sessionId = String(event.sessionId ?? '')
-      if (event.type === 'citation') {
-        const c = event.citation as { marker?: string; title?: string } | undefined
-        if (c?.title) citations.push(`${c.marker ?? ''} ${c.title}`.trim())
-      }
-    },
-    text: () => (citations.length ? `${text}\n\n出处：\n${citations.join('\n')}` : text),
-    error: () => error,
-    sessionId: () => sessionId,
-  }
-}
-
 export async function tenantToken(): Promise<string> {
   if (tokenCache && Date.now() < tokenCache.expireAt) return tokenCache.token
   const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
@@ -121,11 +99,8 @@ async function botId(): Promise<string> {
   return botOpenId
 }
 
-export function issueBindCode(db: KbDb, userId: string): { code: string; expiresIn: number } {
-  const code = randomBytes(3).toString('hex').toUpperCase()
-  db.createFeishuBindCode(code, userId, 5 * 60)
-  return { code, expiresIn: 300 }
-}
+const POINT_TO_AGENT =
+  '提问请用飞书智能体（不是这个应用号）。\n网页登录 →「绑定外部 agent」生成绑定码，智能体调 /api/agent/bind 绑好后即可按你的权限检索。\n记录经验发：记一下：<内容>'
 
 export async function handleFeishuEvent(
   db: KbDb,
@@ -154,51 +129,18 @@ export async function handleFeishuEvent(
   const text = textOf(message.content ?? '')
   if (!text) return
 
-  const bind = /^绑定\s*([A-Za-z0-9]{6})$/.exec(text)
-  if (bind) {
-    const userId = db.consumeFeishuBindCode(bind[1].toUpperCase())
-    if (!userId) {
-      await send(message.chat_id, message.message_id, '验证码无效或已过期。请在知识库网页重新生成。')
-      return
-    }
-    db.bindFeishu(openId, userId)
-    const user = db.findUserById(userId)
-    await send(message.chat_id, message.message_id, `已绑定为 ${user?.name ?? userId}。以后在这里提问会按你的权限检索。`)
-    return
-  }
-  if (text === '解绑') {
-    db.unbindFeishu(openId)
-    await send(message.chat_id, message.message_id, '已解绑。再问需要重新绑定。')
-    return
-  }
-  if (text === '帮助' || text === 'help') {
-    await send(
-      message.chat_id,
-      message.message_id,
-      '我是工厂知识库助手。\n1. 在网页登录，点「绑定飞书」拿到验证码\n2. 发给我：绑定 ABC123\n3. 之后直接问设备、规程、故障\n4. 想记录经验/日报：发「记一下：<内容>」或「日报：<内容>」\n发送「解绑」取消。',
-    )
+  if (text === '帮助' || text === 'help' || /^绑定\s*[A-Za-z0-9]{6}$/.test(text) || text === '解绑') {
+    await send(message.chat_id, message.message_id, POINT_TO_AGENT)
     return
   }
 
-  const binding = db.getFeishuBinding(openId)
-  if (!binding) {
-    await send(
-      message.chat_id,
-      message.message_id,
-      '还没绑定账号。请先在知识库网页登录，点「绑定飞书」，然后把验证码发我：绑定 ABC123',
-    )
-    return
-  }
-  const user = db.findUserById(binding.userId)
-  if (!user) {
-    db.unbindFeishu(openId)
-    await send(message.chat_id, message.message_id, '绑定的账号已不存在，请重新绑定。')
-    return
-  }
-
-  // ---- 飞书里直接提交经验/日报：进「待确认」，管理员确认后才进正式库 ----
   const intake = /^(记一下|记录一下|记录|记一条|提交经验|经验\s*[:：]|日报\s*[:：])\s*([\s\S]+)$/.exec(text)
   if (intake) {
+    const user = db.userOfIdentity('feishu', openId)
+    if (!user) {
+      await send(message.chat_id, message.message_id, POINT_TO_AGENT)
+      return
+    }
     const trigger = intake[1]
     const body = intake[2].trim()
     if (body.length < 6) {
@@ -227,18 +169,7 @@ export async function handleFeishuEvent(
     return
   }
 
-  const collected = collectAnswer()
-  await runAsk(
-    user,
-    db,
-    config,
-    { type: 'ask', questionId: newId('q'), question: text, sessionId: binding.sessionId },
-    collected.emit,
-  )
-  const sid = collected.sessionId()
-  if (sid) db.setFeishuSession(openId, sid)
-  const err = collected.error()
-  await send(message.chat_id, message.message_id, err || collected.text() || '没有得到回答')
+  await send(message.chat_id, message.message_id, POINT_TO_AGENT)
 }
 
 /** 给测试用：不发包，只走验签与解析。 */

@@ -12,7 +12,6 @@ import {
   eventPayload,
   feishuSignature,
   handleFeishuEvent,
-  issueBindCode,
   parseFeishuBody,
   verifyFeishuRequest,
 } from '../src/feishu.js'
@@ -79,28 +78,26 @@ test('飞书加解密与验签', () => {
   assert.equal(bad.ok, false)
 })
 
-test('飞书绑定码、解绑、群里不 @ 不回', async () => {
+test('飞书应用号不再本体问答，经验走外部身份', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kb-fs-'))
   const db = openDb(join(dir, 'kb.sqlite'))
   const config = stubConfig()
   try {
-    const { code } = issueBindCode(db, 'u3')
     const sent: string[] = []
     const send = async (_c: string, _m: string, text: string) => {
       sent.push(text)
     }
 
-    await handleFeishuEvent(db, config, textEvent('ou_1', `绑定 ${code.toLowerCase()}`), send)
-    assert.match(sent[0] ?? '', /已绑定为 wang/)
-    assert.equal(db.getFeishuBinding('ou_1')?.userId, 'u3')
+    await handleFeishuEvent(db, config, textEvent('ou_1', '绑定 ABC123'), send)
+    assert.match(sent[0] ?? '', /飞书智能体/)
 
     sent.length = 0
     await handleFeishuEvent(db, config, textEvent('ou_2', '液压油怎么换'), send)
-    assert.match(sent[0] ?? '', /还没绑定/)
+    assert.match(sent[0] ?? '', /绑定外部 agent/)
 
     sent.length = 0
     await handleFeishuEvent(db, config, textEvent('ou_1', '帮助'), send)
-    assert.match(sent[0] ?? '', /绑定 ABC123/)
+    assert.match(sent[0] ?? '', /\/api\/agent\/bind/)
 
     sent.length = 0
     await handleFeishuEvent(db, config, textEvent('ou_1', '照片', { messageType: 'image' }), send)
@@ -112,11 +109,16 @@ test('飞书绑定码、解绑、群里不 @ 不回', async () => {
 
     sent.length = 0
     await handleFeishuEvent(db, stubConfig({ groupOnlyMention: false }), textEvent('ou_1', '解绑', { chatType: 'group' }), send)
-    assert.match(sent[0] ?? '', /已解绑/)
-    assert.equal(db.getFeishuBinding('ou_1'), null)
+    assert.match(sent[0] ?? '', /飞书智能体/)
 
-    db.createFeishuBindCode('OLDOLD', 'u3', -10)
-    assert.equal(db.consumeFeishuBindCode('OLDOLD'), null)
+    sent.length = 0
+    await handleFeishuEvent(db, config, textEvent('ou_1', '记一下：行走速度改成 0.5'), send)
+    assert.match(sent[0] ?? '', /绑定外部 agent/)
+
+    db.bindIdentity('feishu', 'ou_1', 'u3')
+    sent.length = 0
+    await handleFeishuEvent(db, config, textEvent('ou_1', '记一下：行走速度改成 0.5 米每秒'), send)
+    assert.match(sent[0] ?? '', /已收到（经验）/)
 
     const payload = eventPayload({
       header: { event_id: 'ev1', event_type: 'im.message.receive_v1', token: 'tok' },
@@ -200,11 +202,14 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
       body: JSON.stringify({ username: 'wang', password: '123456' }),
     })
     const cookie = login.headers.getSetCookie()[0].split(';')[0]
-    const codeRes = await fetch(`${base}/api/feishu/bind-code`, { method: 'POST', headers: { cookie } })
+    const codeRes = await fetch(`${base}/api/bind-code`, { method: 'POST', headers: { cookie } })
     assert.equal(codeRes.status, 200)
     const issued = (await codeRes.json()) as { code: string; expiresIn: number }
     assert.equal(issued.code.length, 6)
-    assert.equal(issued.expiresIn, 300)
+    assert.equal(issued.expiresIn, 3600)
+
+    const gone = await fetch(`${base}/api/feishu/bind-code`, { method: 'POST', headers: { cookie } })
+    assert.equal(gone.status, 404)
 
     const adminLogin = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
@@ -213,8 +218,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     })
     const adminCookie = adminLogin.headers.getSetCookie()[0].split(';')[0]
     const list = await fetch(`${base}/api/admin/feishu/bindings`, { headers: { cookie: adminCookie } })
-    assert.equal(list.status, 200)
-    assert.deepEqual(await list.json(), [])
+    assert.equal(list.status, 404)
   } finally {
     await server.close()
     rmSync(dir, { recursive: true, force: true })

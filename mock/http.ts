@@ -267,10 +267,38 @@ const routes: Route[] = [
 
   {
     method: 'POST',
-    pattern: '/feishu/bind-code',
+    pattern: '/bind-code',
     handler: ({ res }) => {
       const code = Math.random().toString(16).slice(2, 8).toUpperCase().padEnd(6, 'A')
-      sendJson(res, 200, { code, expiresIn: 300 })
+      sendJson(res, 200, { code, expiresIn: 3600 })
+    },
+  },
+  {
+    method: 'GET',
+    pattern: '/bind-code/identities',
+    handler: ({ res }) => {
+      sendJson(res, 200, [])
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/bind-code/unbind',
+    handler: ({ res }) => {
+      sendJson(res, 200, { ok: true })
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/bind-code/kit',
+    role: 'owner',
+    handler: async ({ req, res }) => {
+      const body = await readBody(req)
+      sendJson(res, 200, {
+        filename: 'kb-web-接入说明-mock.md',
+        agent: 'mock',
+        channel: String(body.channel ?? 'feishu'),
+        markdown: '# mock 接入说明',
+      })
     },
   },
 

@@ -140,7 +140,7 @@ curl -X POST http://127.0.0.1:3000/api/agent/search \
 - 两个 token 体系：`AGENT_TOKENS`（写入 + 绑定 + 检索）、每来源一个，泄露改一行重启即吊销
 - 未绑定的身份一律 403，不会退化成"匿名可查"
 - 内容出网分级：对外部云平台只放 public/internal，机密/绝密不要挂外部 agent
-- 飞书通道目前仍用它自己的绑定码（`/api/feishu/bind-code`），等接通飞书应用后再并入通用
+- 飞书智能体 / Teams / 豆包一律走 `/api/bind-code` + `/api/agent/bind`；kb-web 自建飞书应用号不再问答，只收「记一下」进待确认
 
 ## 飞书里提交经验/日报
 

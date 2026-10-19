@@ -51,7 +51,7 @@ export function cancelAll(ws: WebSocket) {
   runs.delete(ws)
 }
 
-/** 网站 WebSocket 入口。飞书等通道走 runAsk + 自己的 emit。 */
+/** 网站 WebSocket 入口。其它通道复用 runAsk + 自己的 emit。 */
 export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: AppConfig, msg: AskMessage) {
   const abort = new AbortController()
   const run: Run = { abort, cancelled: false }

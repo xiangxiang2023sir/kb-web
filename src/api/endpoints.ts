@@ -5,7 +5,7 @@
  *
  * 后端实现参考（详见 AGENTS.md）：
  * - /ws ask           → 闲聊或 gbrain search → DeepSeek 流式生成
- * - /feishu/events    → 飞书 webhook，后台走同一套 runAsk
+ * - /feishu/events    → 飞书 webhook（经验「记一下」；问答走外部智能体）
  * - /admin/docs/*     → extractText 解析 → 分类 → gbrain capture 入库
  * - /admin/health/run → gbrain orphans 等
  */

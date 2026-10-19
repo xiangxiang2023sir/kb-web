@@ -338,7 +338,7 @@ export class KbDb {
 
   /** 生成一次性绑定码（替换原来只能绑飞书的码） */
   issueBindCode(userId: string): { code: string; expiresIn: number } {
-    const code = Math.random().toString(36).slice(2, 8).toUpperCase()
+    const code = randomBytes(3).toString('hex').toUpperCase()
     const ttl = 3600
     const expires = new Date(Date.now() + ttl * 1000).toISOString()
     this.run(`DELETE FROM bind_codes WHERE user_id = ?`, userId)
@@ -358,12 +358,8 @@ export class KbDb {
   }
 
   bindIdentity(channel: string, externalId: string, userId: string) {
-    this.run(
-      `DELETE FROM agent_identities WHERE (channel = ? AND external_id = ?) OR user_id = ?`,
-      channel,
-      externalId,
-      userId,
-    )
+    this.run(`DELETE FROM agent_identities WHERE channel = ? AND external_id = ?`, channel, externalId)
+    this.run(`DELETE FROM agent_identities WHERE channel = ? AND user_id = ?`, channel, userId)
     this.run(
       `INSERT INTO agent_identities (channel, external_id, user_id, bound_at) VALUES (?, ?, ?, ?)`,
       channel,
@@ -447,9 +443,11 @@ export class KbDb {
     return Number(row?.n ?? 0)
   }
 
-  findUserByIdPlain(id: string): { id: string; name: string; role: Role } | null {
-    const row = this.one(`SELECT id, name, role FROM users WHERE id = ?`, id)
-    return row ? { id: String(row.id), name: String(row.name), role: row.role as Role } : null
+  findUserByIdPlain(id: string): { id: string; name: string; role: Role; status: string } | null {
+    const row = this.one(`SELECT id, name, role, status FROM users WHERE id = ?`, id)
+    return row
+      ? { id: String(row.id), name: String(row.name), role: row.role as Role, status: String(row.status ?? 'approved') }
+      : null
   }
 
   approveUser(id: string, role: Role, field: Field | null) {
@@ -568,57 +566,6 @@ export class KbDb {
       docId: String(r.doc_id),
       docTitle: String(r.doc_title),
       detail: String(r.detail),
-    }))
-  }
-
-  createFeishuBindCode(code: string, userId: string, ttlSec: number) {
-    this.run(`DELETE FROM feishu_bind_codes WHERE user_id = ?`, userId)
-    const expires = new Date(Date.now() + ttlSec * 1000).toISOString()
-    this.run(`INSERT INTO feishu_bind_codes (code, user_id, expires_at) VALUES (?, ?, ?)`, code, userId, expires)
-  }
-
-  consumeFeishuBindCode(code: string): string | null {
-    const row = this.one(`SELECT user_id, expires_at FROM feishu_bind_codes WHERE code = ?`, code.toUpperCase())
-    this.run(`DELETE FROM feishu_bind_codes WHERE code = ?`, code.toUpperCase())
-    if (!row) return null
-    if (String(row.expires_at) < new Date().toISOString()) return null
-    return String(row.user_id)
-  }
-
-  bindFeishu(openId: string, userId: string) {
-    this.run(`DELETE FROM feishu_bindings WHERE open_id = ? OR user_id = ?`, openId, userId)
-    this.run(
-      `INSERT INTO feishu_bindings (open_id, user_id, bound_at) VALUES (?, ?, ?)`,
-      openId,
-      userId,
-      new Date().toISOString(),
-    )
-  }
-
-  unbindFeishu(openId: string) {
-    this.run(`DELETE FROM feishu_bindings WHERE open_id = ?`, openId)
-  }
-
-  getFeishuBinding(openId: string): { userId: string; sessionId?: string } | null {
-    const row = this.one(`SELECT user_id, session_id FROM feishu_bindings WHERE open_id = ?`, openId)
-    if (!row) return null
-    return { userId: String(row.user_id), sessionId: row.session_id ? String(row.session_id) : undefined }
-  }
-
-  setFeishuSession(openId: string, sessionId: string) {
-    this.run(`UPDATE feishu_bindings SET session_id = ? WHERE open_id = ?`, sessionId, openId)
-  }
-
-  listFeishuBindings(): { openId: string; userId: string; userName: string; boundAt: string }[] {
-    return this.many(
-      `SELECT b.open_id, b.user_id, b.bound_at, u.name AS user_name
-       FROM feishu_bindings b JOIN users u ON u.id = b.user_id
-       ORDER BY b.bound_at DESC`,
-    ).map((r) => ({
-      openId: String(r.open_id),
-      userId: String(r.user_id),
-      userName: String(r.user_name),
-      boundAt: String(r.bound_at),
     }))
   }
 

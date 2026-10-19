@@ -40,7 +40,7 @@ const bindCode = ref('')
 const bindLeft = ref(0)
 let bindTimer: ReturnType<typeof setInterval> | undefined
 
-const bindPhrase = computed(() => (bindCode.value ? `绑定 ${bindCode.value}` : ''))
+const bindPhrase = computed(() => bindCode.value)
 
 onUnmounted(() => {
   if (bindTimer) clearInterval(bindTimer)
@@ -206,7 +206,14 @@ async function copyBind() {
       <template #footer>
         <el-button :loading="bindLoading" @click="issueBind">重新生成</el-button>
         <el-button :disabled="!bindCode || bindLeft <= 0" @click="copyBind">复制绑定码</el-button>
-        <el-button type="primary" :loading="kitLoading" @click="downloadKit">下载接入说明 (.md)</el-button>
+        <el-button
+          v-if="auth.user?.role === 'owner'"
+          type="primary"
+          :loading="kitLoading"
+          @click="downloadKit"
+        >
+          下载接入说明 (.md)
+        </el-button>
       </template>
     </el-dialog>
   </div>

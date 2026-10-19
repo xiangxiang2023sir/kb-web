@@ -5,6 +5,17 @@ if (cmd === 'search') {
   const query = args[1] ?? ''
   if (query.includes('空结果')) {
     console.log('[]')
+  } else if (query.includes('绝密')) {
+    console.log(
+      JSON.stringify([
+        {
+          slug: 'electrical/top_secret/secret-page',
+          title: '绝密页',
+          chunk_text: '不该给外部 agent',
+          score: 0.9,
+        },
+      ]),
+    )
   } else {
     console.log(
       JSON.stringify([

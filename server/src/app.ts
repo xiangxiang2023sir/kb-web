@@ -18,7 +18,6 @@ import {
   eventPayload,
   feishuConfigured,
   handleFeishuEvent,
-  issueBindCode,
   parseFeishuBody,
   replyFeishu,
   verifyFeishuRequest,
@@ -114,8 +113,19 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   loadEnvFile()
   const config = loadConfig()
   const agentTokens: AgentToken[] = parseAgentTokens(process.env.AGENT_TOKENS)
-  /** 外部 agent 检索限流：每分钟 60 次/agent */
+  /** 外部 agent 限流：bind 每分钟 20 次、search 每分钟 60 次（按 token 名分桶） */
   const rateBuckets = new Map<string, { minute: number; count: number }>()
+  function hitRate(key: string, limit: number): boolean {
+    const minute = Math.floor(Date.now() / 60000)
+    const bucket = rateBuckets.get(key) ?? { minute, count: 0 }
+    if (bucket.minute !== minute) {
+      bucket.minute = minute
+      bucket.count = 0
+    }
+    bucket.count += 1
+    rateBuckets.set(key, bucket)
+    return bucket.count > limit
+  }
   const dataDir = opts?.dataDir ?? join(serverRoot, 'data')
   mkdirSync(dataDir, { recursive: true })
   const db = openDb(join(dataDir, 'kb.sqlite'))
@@ -255,24 +265,6 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     if (!payload || db.seenFeishuEvent(payload.eventId)) return
     void handleFeishuEvent(db, config, payload.event, replyFeishu).catch((err) => console.error('[feishu]', err))
   })
-
-  // 飞书通道自己的绑定码（与 feishu_bindings 配套；外部 agent 走 /api/bind-code）
-  app.post('/api/feishu/bind-code', requireUser, (_req, res) => {
-    res.json(issueBindCode(db, userOf(res)!.id))
-  })
-
-  app.get('/api/admin/feishu/bindings', requireAdmin, (_req, res) => {
-    res.json(db.listFeishuBindings())
-  })
-
-  app.delete(
-    '/api/admin/feishu/bindings/:openId',
-    requireAdmin,
-    (req, res) => {
-      db.unbindFeishu(req.params.openId)
-      res.json({ ok: true })
-    },
-  )
 
   app.get('/api/chat/sessions', requireUser, (req, res) => {
     res.json(db.listChatSessions(userOf(res)!.id))
@@ -669,12 +661,20 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if ((role === 'owner' || role === 'admin') && userOf(res)!.role !== 'owner') {
         throw new HttpError(403, '只有主人能批准管理员或主人账号')
       }
+      const target = db.findUserByIdPlain(String(req.params.id))
+      if (!target) throw new HttpError(404, '用户不存在')
+      if (target.status !== 'pending') throw new HttpError(400, '只能审批待批准的申请')
+      if (target.role === 'owner') throw new HttpError(403, '不能改主人账号')
       db.approveUser(String(req.params.id), role, field)
       res.json({ ok: true })
     }),
   )
 
   app.post('/api/admin/users/:id/reject', requireAdmin, (req, res) => {
+    const target = db.findUserByIdPlain(String(req.params.id))
+    if (!target) throw new HttpError(404, '用户不存在')
+    if (target.status !== 'pending') throw new HttpError(400, '只能审批待批准的申请')
+    if (target.role === 'owner') throw new HttpError(403, '不能改主人账号')
     db.rejectUser(String(req.params.id))
     res.json({ ok: true })
   })
@@ -924,11 +924,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         "",
         "用户口述了经验、踩坑、日终总结时，调这个接口存进来（原文照录，不要自己改写要点）：",
         "",
-        "```bash",
-        "curl -X POST https://kb.jixiangxiang9.website/api/agent/capture \\",
-        "  -H \"Authorization: Bearer <令牌>\" -H \"Content-Type: application/json\" \\",
-        "-d '{\"title\":\"行走电机 maxRPM 要按铭牌算\",\"content\":\"## 适用前提……\",\"kind\":\"经验\",\"field\":\"electrical\"}'",
-        "```",
+        '```bash',
+        `curl -X POST ${base}/api/agent/capture \\`,
+        '  -H "Authorization: Bearer <令牌>" -H "Content-Type: application/json" \\',
+        '-d \'{"title":"行走电机 maxRPM 要按铭牌算","content":"## 适用前提……","kind":"经验","field":"electrical"}\'',
+        '```',
         "",
         "- 返回 {\"ok\":true,\"status\":\"pending\"} = 已进待确认；要告诉用户「管理员确认后才进正式知识库」",
         "- kind：经验 / 日报；field：electrical / dispatch / mechanical",
@@ -954,6 +954,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     asyncRoute(async (req, res) => {
       const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
       if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
+      if (hitRate(`bind:${agent}`, 20)) throw new HttpError(429, '绑定过于频繁（每分钟 20 次）')
       const channel = String(req.body?.channel ?? agent).trim().slice(0, 24) || agent
       const externalId = String(req.body?.external_id ?? '').trim()
       if (!externalId) throw new HttpError(400, 'external_id 必填（飞书 open_id / Teams UPN / 豆包用户标识）')
@@ -971,16 +972,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     asyncRoute(async (req, res) => {
       const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
       if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
-
-      const minute = Math.floor(Date.now() / 60000)
-      const bucket = rateBuckets.get(agent) ?? { minute, count: 0 }
-      if (bucket.minute !== minute) {
-        bucket.minute = minute
-        bucket.count = 0
-      }
-      bucket.count += 1
-      rateBuckets.set(agent, bucket)
-      if (bucket.count > 60) throw new HttpError(429, '请求过于频繁（每分钟 60 次）')
+      if (hitRate(`search:${agent}`, 60)) throw new HttpError(429, '请求过于频繁（每分钟 60 次）')
 
       const query = String(req.body?.query ?? '').trim()
       const channel = String(req.body?.channel ?? agent).trim()
@@ -997,6 +989,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       for (const row of rows) {
         const parsed = parseSlug(row.slug)
         if (!parsed || !canSee(user, parsed.field, parsed.sensitivity)) continue
+        if (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret') continue
         hits.push({
           slug: row.slug,
           title: String((row as { title?: string }).title ?? row.slug),

@@ -117,8 +117,8 @@ export function toMarkdown(
 }
 
 /**
- * 判「告知/陈述」而不是「提问」：没有问号、没有疑问词、长度够 → 不查库，只回确认。
- * questionWords 放 config.yaml（可按项目加词），改词不用改代码。
+ * 判「告知/陈述」而不是「提问」。默认当提问（设备名、短句都要检索）。
+ * 只有明确「记录/改成了/告知」口吻才当陈述。questionWords 放 config.yaml。
  */
 export function looksLikeStatement(text: string, questionWords: string[]): boolean {
   const n = (text || '').trim()
@@ -129,7 +129,9 @@ export function looksLikeStatement(text: string, questionWords: string[]): boole
     const word = String(w || '').trim().toLowerCase()
     if (word && low.includes(word)) return false
   }
-  return n.length >= 4
+  if (/记录一下|改成了|已经把|告知[:：]|备注[:：]/.test(n)) return n.length >= 8
+  if (/^我.+(了|成)/.test(n) && n.length >= 10) return true
+  return false
 }
 
 export async function extractText(filePath: string, filename: string): Promise<string> {

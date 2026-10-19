@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
 import { confidenceOf } from '../src/config.js'
-import { decodeUploadName, extractText, isSmallTalk, searchQueryOf, searchTermsOf } from '../src/text.js'
+import { decodeUploadName, extractText, isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -36,6 +36,15 @@ test('打招呼不走知识库检索', () => {
   assert.equal(isSmallTalk('你是谁', phrases), true)
   assert.equal(isSmallTalk('液压油多久换一次', phrases), false)
   assert.equal(isSmallTalk('你好，液压油怎么换', phrases), false)
+})
+
+test('设备短问仍走检索，陈述才当告知', () => {
+  const words = ['怎么', '如何', '吗']
+  assert.equal(looksLikeStatement('F009 过载', words), false)
+  assert.equal(looksLikeStatement('液压油更换周期', words), false)
+  assert.equal(looksLikeStatement('变频器过载怎么处理', words), false)
+  assert.equal(looksLikeStatement('我改成了 0.5 米每秒，记录一下', words), true)
+  assert.equal(looksLikeStatement('告知：行走速度改成 0.5', words), true)
 })
 
 test('疑问说法不进入检索词', () => {
@@ -199,6 +208,38 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     })
     assert.equal(adminCreate.status, 403)
 
+    const rejectOwner = await fetch(`${base}/api/admin/users/u1/reject`, { method: 'POST', headers: { cookie: adminCookie } })
+    assert.equal(rejectOwner.status, 400)
+    const approveOwner = await fetch(`${base}/api/admin/users/u1/approve`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'operator', field: 'electrical' }),
+    })
+    assert.equal(approveOwner.status, 400)
+
+    const apply = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'newbie', password: 'secret1', title: '电工' }),
+    })
+    assert.equal(apply.status, 200)
+    const pendingUsers = await fetch(`${base}/api/admin/users/pending`, { headers: { cookie: adminCookie } })
+    const pu = (await pendingUsers.json()) as { id: string; name: string }[]
+    const newbie = pu.find((u) => u.name === 'newbie')
+    assert.ok(newbie)
+    const okApprove = await fetch(`${base}/api/admin/users/${newbie.id}/approve`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'operator', field: 'electrical' }),
+    })
+    assert.equal(okApprove.status, 200)
+    const againApprove = await fetch(`${base}/api/admin/users/${newbie.id}/approve`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'operator', field: 'electrical' }),
+    })
+    assert.equal(againApprove.status, 400)
+
     const events = await ask(base, cookie, '空结果')
     assert.ok(events.some((e) => e.type === 'status' && e.phase === 'no_evidence'))
     assert.ok(events.some((e) => e.type === 'done'))
@@ -273,9 +314,34 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
       body: JSON.stringify({ query: '变频器', channel: 'teams', external_id: 'norman@example.com' }),
     })
     assert.equal(searchRes.status, 200)
-    const searchBody = (await searchRes.json()) as { hits: unknown[]; noEvidence: string | null }
+    const searchBody = (await searchRes.json()) as { hits: { sensitivity?: string }[]; noEvidence: string | null }
     assert.ok(Array.isArray(searchBody.hits))
     assert.ok(!('answer' in (searchBody as Record<string, unknown>)), '不该返回生成答案')
+    assert.ok(searchBody.hits.every((h) => h.sensitivity !== 'confidential' && h.sensitivity !== 'top_secret'))
+
+    const secretRes = await fetch(`${base}/api/agent/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ query: '绝密', channel: 'teams', external_id: 'norman@example.com' }),
+    })
+    assert.equal(secretRes.status, 200)
+    const secretBody = (await secretRes.json()) as { hits: unknown[]; noEvidence: string | null }
+    assert.equal(secretBody.hits.length, 0)
+    assert.ok(secretBody.noEvidence)
+
+    // 同一用户再绑飞书，不应清掉 Teams
+    const bc2 = await fetch(`${base}/api/bind-code`, { method: 'POST', headers: { cookie } })
+    const code2 = ((await bc2.json()) as { code: string }).code
+    const bindFeishu = await fetch(`${base}/api/agent/bind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ code: code2, channel: 'feishu', external_id: 'ou_owner' }),
+    })
+    assert.equal(bindFeishu.status, 200)
+    const ids = await fetch(`${base}/api/bind-code/identities`, { headers: { cookie } })
+    const ident = (await ids.json()) as { channel: string }[]
+    assert.ok(ident.some((i) => i.channel === 'teams'))
+    assert.ok(ident.some((i) => i.channel === 'feishu'))
 
     // 绑定码一次性：再用一次应失败
     const reuse = await fetch(`${base}/api/agent/bind`, {
