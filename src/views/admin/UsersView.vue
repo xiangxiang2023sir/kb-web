@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
+import { useAuthStore } from '@/stores/auth'
 import type { Field, Role, User } from '@/types'
 import { fieldLabels, roleLabels } from '@/utils/labels'
+
+const auth = useAuthStore()
+const isOwner = computed(() => auth.user?.role === 'owner')
 
 const list = ref<User[]>([])
 interface PendingUser {
@@ -136,7 +140,8 @@ async function save() {
       </el-table>
     </div>
     <div class="filter-bar">
-      <el-button type="primary" @click="openCreate">新增用户</el-button>
+      <el-button v-if="isOwner" type="primary" @click="openCreate">新增用户</el-button>
+      <span v-else style="font-size: 13px; color: #8492a6">管理员可以审批注册申请；新增/改角色只有主人能做</span>
     </div>
 
     <el-skeleton v-if="loading && !list.length" :rows="5" animated />

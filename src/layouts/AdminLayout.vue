@@ -65,7 +65,7 @@ async function logout() {
           <el-icon><ChatLineRound /></el-icon>
           <span>AI知识库管理助手</span>
         </el-menu-item>
-        <el-menu-item v-if="auth.user?.role === 'owner'" index="/admin/users">
+        <el-menu-item v-if="auth.isAdmin" index="/admin/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>

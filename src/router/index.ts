@@ -37,7 +37,7 @@ const router = createRouter({
         { path: 'questions', name: 'admin-questions', component: () => import('@/views/admin/QuestionsView.vue'), meta: { title: '问题队列' } },
         { path: 'questions/:id', name: 'admin-question-detail', component: () => import('@/views/admin/QuestionDetailView.vue'), meta: { title: '问题详情' } },
         { path: 'assistant', name: 'admin-assistant', component: () => import('@/views/admin/AssistantView.vue'), meta: { title: 'AI知识库管理助手' } },
-        { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue'), meta: { title: '用户管理', roles: ['owner'] as Role[] } },
+        { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue'), meta: { title: '用户管理', roles: ['owner', 'admin'] as Role[] } },
         { path: 'quoestions', redirect: '/admin/questions' },
         { path: ':pathMatch(.*)*', name: 'admin-not-found', component: () => import('@/views/NotFoundView.vue'), meta: { title: '页面不存在' } },
       ],
