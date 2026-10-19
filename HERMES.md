@@ -58,20 +58,31 @@ journalctl --user -u kb-web -n 50          # 后端日志
 curl -s http://127.0.0.1:3000/api/auth/me  # 未登录应 401（通）
 ```
 
-## agent 日终总结（每人一个工作脑）
+## 每人一个工作脑：日结 / 经验条目 / 清理
+
+**分工三条铁律**
+1. **日结只是原料**，落自己的工作脑（source），**不提交** kb-web、**不进公共库**
+2. 公共库只收**提炼过的经验条目**（一天 ≤3 条，四段式）
+3. 过期日结**自动清理**（默认保留 30 天）
 
 ```bash
-# ① 写进自己的工作脑（source = 这个人的私有脑，公共检索看不到）
-gbrain capture --source xiaoa-work --file <总结.md> --slug electrical/internal/<日期>-小A日终总结 --quiet
-# ② 提交 kb-web 待确认（确认后才进 default 正式库）
-cd server && npx tsx scripts/submit-summary.ts <总结.md> "<标题>" <提交人> <领域> <source名>
-# ③ 自验隔离：不带 --source 应搜不到，带 --source 才命中
-gbrain search <关键词>            # 期望 No results
-gbrain search <关键词> --source xiaoa-work
+# ① 日结：简短（≤15 行/400 字），slug 固定 daily/<YYYY-MM-DD>-<agent>
+gbrain capture --source xiaoa-work --file <日结.md> --slug daily/2026-10-19-xiaoa --quiet
+
+# ② 经验条目：四段式（适用前提/现象/结论做法/证据），走 kb-web 待确认
+curl -X POST http://127.0.0.1:3000/api/agent/capture \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{"title":"…","content":"…","kind":"经验","field":"electrical"}'
+
+# ③ 清理（每周日 03:10 自动跑，也可手动；默认 dry-run）
+server/scripts/daily-cleanup-all.sh 30            # 预览
+server/scripts/daily-cleanup-all.sh 30 --apply    # 真删
+systemctl --user list-timers kb-daily-cleanup.timer
 ```
 
-- 现有工作脑：`xiaoa-work`（小A）、`xiaoc-work`（小C）；公共库 `default` 不收未审核内容
-- ⚠️ 容器/跨机里的 agent 跑不了 gbrain CLI（无 CLI、目录未挂载）⇒ 需宿主机侧执行，或后续走 kb-web 的 agent 写入接口
+- 模板（硬约束）：`server/prompts/daily-summary.md`
+- 工作脑必须是 **git 仓库**（`gbrain sync --source <id>` 依赖它）：新机器上 `git init` 一次即可
+- 「日结不再进待确认」：`server/scripts/submit-summary.ts` 只用于**经验条目**
 
 ## agent 写入接口（跨机 / 容器里的 agent 用这个）
 

@@ -8,7 +8,7 @@ import { assertCanConfirm, parseSlug } from './access.js'
 import { cancelAll, cancelAsk, contextOf, handleAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
-import { GBrainError, captureGBrain, listGBrain } from './gbrain.js'
+import { GBrainError, captureGBrain, listGBrain, searchGBrain } from './gbrain.js'
 import { runHealth } from './health.js'
 import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
 import { agentNameOf, bearerOf, parseAgentTokens, type AgentToken } from './agentTokens.js'
@@ -752,6 +752,18 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         return
       }
 
+      // 查重提示：先在公共库里找相似页，命中就把"可能重复"写进正文，提醒审阅人并入而不是另开新页
+      let similar: { slug: string; title: string }[] = []
+      try {
+        const hits = await searchGBrain(config, title, 3)
+        similar = hits.map((h) => ({ slug: h.slug, title: String((h as { title?: string }).title ?? h.slug) }))
+      } catch {
+        similar = []
+      }
+      const similarNote = similar.length
+        ? `\n- 可能重复：${similar.map((s) => `${s.slug}（${s.title}）`).join('；')}\n  ⇒ 请优先并入现有页，别另开新页`
+        : ''
+
       const id = newId('d')
       db.insertDoc({
         id,
@@ -761,7 +773,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         status: 'pending',
         suggestedField: field,
         suggestedSensitivity: sensitivity,
-        content: `${content}\n\n---\n\n- 来源：agent 写入（${agent}）\n- 时间：${new Date().toISOString()}`,
+        content: `${content}\n\n---\n\n- 来源：agent 写入（${agent}）\n- 时间：${new Date().toISOString()}${similarNote}`,
         updatedAt: new Date().toISOString(),
       })
       res.json({ ok: true, id, title: fullTitle, field, sensitivity, status: 'pending' })
