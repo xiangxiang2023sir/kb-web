@@ -57,3 +57,18 @@ systemctl --user status|restart kb-web     # 后端（127.0.0.1:3000，开机自
 journalctl --user -u kb-web -n 50          # 后端日志
 curl -s http://127.0.0.1:3000/api/auth/me  # 未登录应 401（通）
 ```
+
+## agent 日终总结（每人一个工作脑）
+
+```bash
+# ① 写进自己的工作脑（source = 这个人的私有脑，公共检索看不到）
+gbrain capture --source xiaoa-work --file <总结.md> --slug electrical/internal/<日期>-小A日终总结 --quiet
+# ② 提交 kb-web 待确认（确认后才进 default 正式库）
+cd server && npx tsx scripts/submit-summary.ts <总结.md> "<标题>" <提交人> <领域> <source名>
+# ③ 自验隔离：不带 --source 应搜不到，带 --source 才命中
+gbrain search <关键词>            # 期望 No results
+gbrain search <关键词> --source xiaoa-work
+```
+
+- 现有工作脑：`xiaoa-work`（小A）、`xiaoc-work`（小C）；公共库 `default` 不收未审核内容
+- ⚠️ 容器/跨机里的 agent 跑不了 gbrain CLI（无 CLI、目录未挂载）⇒ 需宿主机侧执行，或后续走 kb-web 的 agent 写入接口
