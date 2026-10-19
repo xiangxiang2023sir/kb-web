@@ -141,3 +141,10 @@ curl -X POST http://127.0.0.1:3000/api/agent/search \
 - 未绑定的身份一律 403，不会退化成"匿名可查"
 - 内容出网分级：对外部云平台只放 public/internal，机密/绝密不要挂外部 agent
 - 飞书通道目前仍用它自己的绑定码（`/api/feishu/bind-code`），等接通飞书应用后再并入通用
+
+## 飞书里提交经验/日报
+
+- **kb-web 自己的飞书应用**（`server/.env` 的 `FEISHU_*`）配好后，在飞书里发：
+  「记一下：<内容>」或「日报：<内容>」→ 直接进「待确认」，管理员确认后才入正式库
+- **小A 的飞书机器人**（Hermes）走 `/api/agent/capture`，脚本：`~/agents/小A/工具/kb_submit.py`
+- 两者都只写待确认，且都做同标题去重

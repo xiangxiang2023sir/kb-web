@@ -175,7 +175,7 @@ export async function handleFeishuEvent(
     await send(
       message.chat_id,
       message.message_id,
-      '我是工厂知识库助手。\n1. 在网页登录，点「绑定飞书」拿到验证码\n2. 发给我：绑定 ABC123\n3. 之后直接问设备、规程、故障\n发送「解绑」取消。',
+      '我是工厂知识库助手。\n1. 在网页登录，点「绑定飞书」拿到验证码\n2. 发给我：绑定 ABC123\n3. 之后直接问设备、规程、故障\n4. 想记录经验/日报：发「记一下：<内容>」或「日报：<内容>」\n发送「解绑」取消。',
     )
     return
   }
@@ -193,6 +193,37 @@ export async function handleFeishuEvent(
   if (!user) {
     db.unbindFeishu(openId)
     await send(message.chat_id, message.message_id, '绑定的账号已不存在，请重新绑定。')
+    return
+  }
+
+  // ---- 飞书里直接提交经验/日报：进「待确认」，管理员确认后才进正式库 ----
+  const intake = /^(记一下|记录一下|记录|记一条|提交经验|经验\s*[:：]|日报\s*[:：])\s*([\s\S]+)$/.exec(text)
+  if (intake) {
+    const trigger = intake[1]
+    const body = intake[2].trim()
+    if (body.length < 6) {
+      await send(message.chat_id, message.message_id, '内容太短了，把要记的经验/日报写全一点。')
+      return
+    }
+    const kind = trigger.includes('日报') ? '日报' : '经验'
+    const field = user.field ?? config.defaults.field
+    const title = body.split('\n')[0].replace(/^#+\s*/, '').slice(0, 40)
+    db.insertDoc({
+      id: newId('d'),
+      title: `[${kind}] ${title}`,
+      field,
+      sensitivity: 'internal',
+      status: 'pending',
+      suggestedField: field,
+      suggestedSensitivity: 'internal',
+      content: `${body}\n\n---\n\n- 来源：飞书（${user.name}）\n- 时间：${new Date().toISOString()}`,
+      updatedAt: new Date().toISOString(),
+    })
+    await send(
+      message.chat_id,
+      message.message_id,
+      `已收到（${kind}）：${title}\n已进「待确认」，管理员确认后才进正式知识库。`,
+    )
     return
   }
 
