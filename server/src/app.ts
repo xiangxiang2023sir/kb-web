@@ -646,6 +646,10 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const fieldRaw = req.body?.field
       const field = fieldRaw == null || fieldRaw === '' ? null : fieldRaw
       if (field !== null && !isField(field)) throw new HttpError(400, '领域不正确')
+      // 越权保护：管理员只能批准操作员/游客；批准成管理员或主人只有主人能做
+      if ((role === 'owner' || role === 'admin') && userOf(res)!.role !== 'owner') {
+        throw new HttpError(403, '只有主人能批准管理员或主人账号')
+      }
       db.approveUser(String(req.params.id), role, field)
       res.json({ ok: true })
     }),

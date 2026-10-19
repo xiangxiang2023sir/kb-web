@@ -119,7 +119,13 @@ async function save() {
         <el-table-column label="批准为" width="230">
           <template #default="{ row }">
             <el-select v-model="approveForm[row.id].role" size="small" style="width: 92px">
-              <el-option v-for="(label, v) in roleLabels" :key="v" :label="label" :value="v" />
+              <el-option
+                v-for="(label, v) in roleLabels"
+                :key="v"
+                :label="label"
+                :value="v"
+                :disabled="(v === 'owner' || v === 'admin') && !isOwner"
+              />
             </el-select>
             <el-select
               v-if="approveForm[row.id].role === 'operator'"
