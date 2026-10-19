@@ -110,6 +110,8 @@ export interface DocItem {
   /** Hermes 自动分类的建议值（待确认文档才有） */
   suggestedField?: Field
   suggestedSensitivity?: Sensitivity
+  /** 被驳回时，驳回原因（谁驳的看不到，只存原因） */
+  rejectReason?: string
 }
 
 export interface DocDetail extends DocItem {

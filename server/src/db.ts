@@ -272,7 +272,7 @@ export class KbDb {
       args.push(filter.status)
     }
     if (filter.hideTopSecret) where.push(`sensitivity != 'top_secret'`)
-    const sql = `SELECT id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, updated_at, slug
+    const sql = `SELECT id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, updated_at, slug, reject_reason
       FROM docs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC`
     return this.many(sql, ...args).map(docItem)
   }
@@ -529,6 +529,7 @@ function docItem(r: Row) {
     suggestedField: r.suggested_field == null ? undefined : (r.suggested_field as Field),
     suggestedSensitivity: r.suggested_sensitivity == null ? undefined : (r.suggested_sensitivity as Sensitivity),
     slug: r.slug == null ? undefined : String(r.slug),
+    rejectReason: r.reject_reason == null || String(r.reject_reason) === '' ? undefined : String(r.reject_reason),
   }
 }
 

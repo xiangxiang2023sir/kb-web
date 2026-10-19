@@ -21,6 +21,9 @@ onMounted(async () => {
       <el-descriptions-item label="领域">{{ fieldLabels[doc.field] }}</el-descriptions-item>
       <el-descriptions-item label="密级">{{ sensitivityLabels[doc.sensitivity] }}</el-descriptions-item>
       <el-descriptions-item label="更新时间">{{ formatTime(doc.updatedAt) }}</el-descriptions-item>
+      <el-descriptions-item v-if="doc.status === 'rejected'" label="驳回原因" :span="2">
+        <span style="color: #d9453d">{{ doc.rejectReason || '（未填写）' }}</span>
+      </el-descriptions-item>
       <el-descriptions-item label="原件">
         <el-link v-if="doc.hasOriginal" type="primary" :href="`/api/admin/docs/${doc.id}/original`" target="_blank">
           下载原件

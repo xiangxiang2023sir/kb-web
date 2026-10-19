@@ -77,6 +77,11 @@ const statusTagType = (s: DocStatus) =>
           <el-tag size="small" :type="statusTagType(row.status)">{{ docStatusLabels[row.status as DocStatus] }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="驳回原因" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span :style="row.rejectReason ? 'color: #d9453d' : 'color: #c0c4cc'">{{ row.rejectReason || "—" }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="更新时间" width="180">
         <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
       </el-table-column>
