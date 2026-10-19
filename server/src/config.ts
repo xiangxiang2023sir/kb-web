@@ -20,7 +20,18 @@ const SENSITIVITIES: Sensitivity[] = ['public', 'internal', 'confidential', 'top
 
 export interface AppConfig {
   auth: { cookieName: string; ttlDays: number }
-  search: { fetchLimit: number; keep: number; maxPages: number; questionPhrases: string[] }
+  search: {
+    fetchLimit: number
+    keep: number
+    maxPages: number
+    questionPhrases: string[]
+    /** 取整页重排的候选条数（GBrain 名次靠前的这些） */
+    rerankCandidates: number
+    /** 整页命中覆盖率在排序里的权重 */
+    coverageWeight: number
+    /** 每条资料送进模型的字数上限 */
+    pageChars: number
+  }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
   chat: { phrases: string[]; fallback: string }
@@ -97,6 +108,9 @@ export function loadConfig(): AppConfig {
         raw.search?.questionPhrases == null
           ? ['怎么处理', '如何处理', '怎么办', '如何', '是什么']
           : asStringArray(raw.search.questionPhrases),
+      rerankCandidates: Number(raw.search?.rerankCandidates ?? 12),
+      coverageWeight: Number(raw.search?.coverageWeight ?? 0.6),
+      pageChars: Number(raw.search?.pageChars ?? 4000),
     },
     confidence: {
       highMin: Number(raw.confidence?.highMin ?? 0.03),
