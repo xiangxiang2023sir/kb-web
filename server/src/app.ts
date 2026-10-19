@@ -800,6 +800,72 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     res.json({ ok: true })
   })
 
+  // ---- 生成「给智能体的接入说明」文件（含令牌，仅主人可下） ----
+  app.post(
+    '/api/bind-code/kit',
+    requireOwner,
+    asyncRoute(async (req, res) => {
+      const agentName = String(req.body?.agent ?? agentTokens[0]?.name ?? '').trim()
+      const token = agentTokens.find((a) => a.name === agentName)?.token
+      if (!token) throw new HttpError(400, '没有可用的 agent token（先在 server/.env 的 AGENT_TOKENS 配一个）')
+      const channel = String(req.body?.channel ?? agentName).trim() || agentName
+      const code = String(req.body?.code ?? '').trim()
+      const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'kb.jixiangxiang9.website').split(',')[0].trim()
+      const proto = String(req.headers['x-forwarded-proto'] ?? (req.secure ? 'https' : 'http')).split(',')[0].trim()
+      const base = `${proto}://${host}`
+      const user = userOf(res)!
+
+      const md = [
+        '# 接入 kb-web 知识库（给智能体的说明）',
+        '',
+        '> ⚠️ 本文件含访问令牌，等同钥匙：别外传、别提交到 git、别贴进公开群。',
+        '',
+        '## 你的角色',
+        '你负责**思考和对话**；知识由 kb-web 提供。检索只拿到「片段 + 出处」，**答案由你写，并保留 [1][2] 出处**，不要编。',
+        '',
+        '## 连接信息',
+        `- 服务地址：\`${base}\``,
+        `- 认证：\`Authorization: Bearer ${token}\``,
+        `- 渠道标识（channel）：\`${channel}\``,
+        '',
+        '## 第一步：绑定身份（每个用户只做一次）',
+        '```',
+        `POST ${base}/api/agent/bind`,
+        `Authorization: Bearer ${token}`,
+        'Content-Type: application/json',
+        '',
+        JSON.stringify({ code: code || '<网页上生成的 6 位绑定码>', channel, external_id: '<该用户的唯一标识：飞书 open_id / Teams UPN / 平台用户 id>' }, null, 0),
+        '```',
+        '返回 `{"ok":true,...}` 即绑好。绑定码一次性、1 小时过期；一个码只能绑一个身份。',
+        '',
+        '## 第二步：提问时检索',
+        '```',
+        `POST ${base}/api/agent/search`,
+        `Authorization: Bearer ${token}`,
+        'Content-Type: application/json',
+        '',
+        JSON.stringify({ query: '<用户问题>', channel, external_id: '<第一步用的同一个标识>', limit: 5 }, null, 0),
+        '```',
+        '返回：',
+        '```json',
+        '{"ok":true,"user":"<网页账号名>","hits":[{"slug":"...","title":"...","marker":"[1]","field":"electrical","sensitivity":"internal","snippet":"..."}],"noEvidence":null}',
+        '```',
+        '- 只有片段和出处，**没有答案**；请你根据片段写答案，正文里保留 `[1]` `[2]` 这样的出处标记',
+        '- 返回 `noEvidence` 时照它回答「没有资料」，不要推测',
+        '- 未绑定 → 403；每个令牌每分钟最多 60 次',
+        '',
+        '## 必须遵守',
+        '1. 权限由服务端按「绑定的网页账号」过滤领域与密级，**不要尝试绕过**',
+        '2. 机密 / 绝密内容不要发到外部云平台；对外只放 public / internal',
+        '3. 绑定码和令牌都是钥匙：令牌泄露请让管理员在 `server/.env` 的 `AGENT_TOKENS` 换掉',
+        '',
+        `<!-- 生成人：${user.name}（${user.role}）｜生成时间：${new Date().toISOString()}｜agent：${agentName} -->`,
+      ].join('\n')
+
+      res.json({ filename: `kb-web-接入说明-${agentName}.md`, agent: agentName, channel, markdown: md })
+    }),
+  )
+
   // ---- 外部 agent：用绑定码把我的身份绑到网页账号 ----
   app.post(
     '/api/agent/bind',

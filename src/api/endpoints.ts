@@ -70,6 +70,11 @@ export const chatApi = {
     http
       .get<{ channel: string; externalId: string; boundAt: string }[]>('/bind-code/identities')
       .then((r) => r.data),
+  /** 生成「给智能体的接入说明」markdown（含令牌，仅主人可用） */
+  agentKit: (payload: { agent?: string; channel?: string; code?: string }) =>
+    http
+      .post<{ filename: string; agent: string; channel: string; markdown: string }>('/bind-code/kit', payload)
+      .then((r) => r.data),
   /** 解绑某个外部身份 */
   unbind: (channel: string, externalId: string) =>
     http.post('/bind-code/unbind', { channel, externalId }).then((r) => r.data),
