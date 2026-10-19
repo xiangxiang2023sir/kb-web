@@ -12,7 +12,7 @@ import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
 import { GBrainError, captureGBrain, listGBrain, searchGBrain } from './gbrain.js'
 import { runHealth } from './health.js'
 import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
-import { agentNameOf, bearerOf, parseAgentTokens, type AgentToken } from './agentTokens.js'
+import { bearerOf } from './agentTokens.js'
 import { buildAgentSkillMarkdown } from './agentSkill.js'
 import { classifyText } from './llm.js'
 import {
@@ -114,7 +114,6 @@ export interface Started {
 export async function start(opts?: { dataDir?: string; port?: number; host?: string }): Promise<Started> {
   loadEnvFile()
   const config = loadConfig()
-  const agentTokens: AgentToken[] = parseAgentTokens(process.env.AGENT_TOKENS)
   /** 外部 agent 限流：bind 每分钟 20 次、search 每分钟 60 次（按 token 名分桶） */
   const rateBuckets = new Map<string, { minute: number; count: number }>()
   function hitRate(key: string, limit: number): boolean {
@@ -931,29 +930,22 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     return `${proto}://${host}`
   }
 
-  function callerOf(req: Request): { label: string; user: User | null } | null {
+  // agent 只认「个人钥匙」（user_agent_keys，网页上自己生成/作废）——全局 AGENT_TOKENS 已停用
+  function callerOf(req: Request): { label: string; user: User } | null {
     const token = bearerOf(req.headers.authorization)
     if (!token) return null
-    const platform = agentNameOf(agentTokens, token)
-    if (platform) return { label: platform, user: null }
     const user = db.userOfAgentKey(token)
     if (user) return { label: user.name, user }
     return null
   }
 
+  // ---- agent 写入接口：个人钥匙，只能写「待确认」，绝不直接进正式库 ----
+  // 个人钥匙 = 一人一身份，不需要 channel/external_id 绑定
   function agentUserOf(req: Request): User {
     const caller = callerOf(req)
     if (!caller) throw new HttpError(401, 'token 无效')
-    if (caller.user) return caller.user
-    const channel = String(req.body?.channel ?? caller.label).trim()
-    const externalId = String(req.body?.external_id ?? '').trim()
-    if (!externalId) throw new HttpError(400, '请用网页下载的 Skill 里的钥匙')
-    const user = db.userOfIdentity(channel, externalId)
-    if (!user) throw new HttpError(403, '这个身份还没绑定，请在网页下载 Skill 交给智能体')
-    return user
+    return caller.user
   }
-
-  // ---- agent 写入接口：个人钥匙或 AGENT_TOKENS，只能写「待确认」，绝不直接进正式库 ----
   app.post(
     '/api/agent/capture',
     asyncRoute(async (req, res) => {
@@ -1056,24 +1048,6 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     db.revokeUserAgentKey(user.id)
     res.json({ ok: true })
   })
-
-  // ---- 外部 agent：用绑定码把我的身份绑到网页账号 ----
-  app.post(
-    '/api/agent/bind',
-    asyncRoute(async (req, res) => {
-      const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
-      if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
-      if (hitRate(`bind:${agent}`, 20)) throw new HttpError(429, '绑定过于频繁（每分钟 20 次）')
-      const channel = String(req.body?.channel ?? agent).trim().slice(0, 24) || agent
-      const externalId = String(req.body?.external_id ?? '').trim()
-      if (!externalId) throw new HttpError(400, 'external_id 必填（飞书 open_id / Teams UPN / 豆包用户标识）')
-      const userId = db.consumeBindCode(String(req.body?.code ?? ''))
-      if (!userId) throw new HttpError(400, '绑定码无效或已过期（请重新生成）')
-      db.bindIdentity(channel, externalId, userId)
-      const user = db.findUserById(userId)
-      res.json({ ok: true, channel, external_id: externalId, user: user?.name ?? null })
-    }),
-  )
 
   // ---- 外部 agent：走网页同一套问答，返回完整答案供原样转发 ----
   app.post(

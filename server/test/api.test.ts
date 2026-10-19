@@ -185,7 +185,6 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
   process.env.DEEPSEEK_API_KEY = ''
   // 本机 server/.env 里可能有真实的 GBRAIN_BIN，测试必须用 fake，且要先于 start() 里的 loadEnvFile
   process.env.GBRAIN_BIN = 'node'
-  process.env.AGENT_TOKENS = 'tester:test-token-123'
   const server = await start({ dataDir: dir, port: 0, host: '127.0.0.1' })
   const base = `http://127.0.0.1:${server.port}`
   try {
@@ -302,7 +301,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     assert.ok(events.some((e) => e.type === 'done'))
     assert.ok(events.some((e) => e.type === 'session' && typeof e.sessionId === 'string'))
 
-    // agent 写入接口：token 校验 + 只写待确认
+    // agent 写入接口：只认个人钥匙 —— 先拿钥匙
     const noToken = await fetch(`${base}/api/agent/capture`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -316,31 +315,6 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
       body: JSON.stringify({ title: 'x', content: 'y' }),
     })
     assert.equal(badToken.status, 401)
-
-    const noContent = await fetch(`${base}/api/agent/capture`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ title: '只有标题' }),
-    })
-    assert.equal(noContent.status, 400)
-
-    const agentIn = await fetch(`${base}/api/agent/capture`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ title: 'agent 写入测试', content: '现场经验一条', field: 'electrical', kind: '经验' }),
-    })
-    assert.equal(agentIn.status, 200)
-    const agentBody = (await agentIn.json()) as { id: string; status: string; title: string }
-    assert.equal(agentBody.status, 'pending')
-    assert.ok(agentBody.title.startsWith('[经验]'))
-
-    // 同标题第二次应去重
-    const agentAgain = await fetch(`${base}/api/agent/capture`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ title: 'agent 写入测试', content: '现场经验一条', field: 'electrical', kind: '经验' }),
-    })
-    assert.equal((await agentAgain.json()).duplicate, true)
 
     // 个人 Skill 钥匙：下载即绑定，检索不再要 channel
     const beforeSkill = await fetch(`${base}/api/agent-skill`, { headers: { cookie } })
@@ -359,12 +333,38 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     assert.ok(skill.markdown.includes('sessionId'))
     assert.ok(!skill.markdown.includes('"external_id"'))
 
-    const unbound = await fetch(`${base}/api/agent/search`, {
+    const noContent = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ title: '只有标题' }),
+    })
+    assert.equal(noContent.status, 400)
+
+    const agentIn = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ title: 'agent 写入测试', content: '现场经验一条', field: 'electrical', kind: '经验' }),
+    })
+    assert.equal(agentIn.status, 200)
+    const agentBody = (await agentIn.json()) as { id: string; status: string; title: string }
+    assert.equal(agentBody.status, 'pending')
+    assert.ok(agentBody.title.startsWith('[经验]'))
+
+    // 同标题第二次应去重
+    const agentAgain = await fetch(`${base}/api/agent/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ title: 'agent 写入测试', content: '现场经验一条', field: 'electrical', kind: '经验' }),
+    })
+    assert.equal((await agentAgain.json()).duplicate, true)
+
+    // 老的全局 AGENT_TOKENS 已停用 → 这种旧钥匙现在一律 401
+    const legacy = await fetch(`${base}/api/agent/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
-      body: JSON.stringify({ query: '变频器', channel: 'teams', external_id: 'nobody@example.com' }),
+      body: JSON.stringify({ query: '变频器' }),
     })
-    assert.equal(unbound.status, 403)
+    assert.equal(legacy.status, 401)
 
     const searchRes = await fetch(`${base}/api/agent/search`, {
       method: 'POST',
