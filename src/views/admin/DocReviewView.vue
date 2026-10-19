@@ -2,8 +2,13 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
+import { useAuthStore } from '@/stores/auth'
 import type { DocItem, Field, Sensitivity } from '@/types'
 import { fieldLabels, sensitivityLabels } from '@/utils/labels'
+
+const auth = useAuthStore()
+/** 管理员不能确认绝密，只有主人可以 */
+const isOwner = () => auth.user?.role === 'owner'
 
 const list = ref<DocItem[]>([])
 const loading = ref(false)
@@ -28,9 +33,12 @@ const form = reactive<{ field: Field; sensitivity: Sensitivity }>({
 
 function openConfirm(row: DocItem) {
   current.value = row
-  // 默认采用 Hermes 的建议分类，管理员可修改
+  // 用表格里改过的值（Hermes 的建议只是默认值，人改过就以人改的为准）
   form.field = row.suggestedField ?? row.field
   form.sensitivity = row.suggestedSensitivity ?? row.sensitivity
+  if (form.sensitivity === 'top_secret' && !isOwner()) {
+    ElMessage.warning('只有主人可以把文档定为绝密，请先切成机密或以下')
+  }
   confirmVisible.value = true
 }
 
@@ -41,8 +49,13 @@ async function doConfirm() {
     ElMessage.success('已确认入库')
     confirmVisible.value = false
     void load()
-  } catch {
-    ElMessage.error('操作失败，请重试')
+  } catch (err) {
+    // 把后端的原因原样显示（如「只有主人可以把文档定为绝密」），别只报"操作失败"
+    const msg =
+      (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+      (err as Error).message ||
+      '操作失败，请重试'
+    ElMessage.error(msg)
   }
 }
 
@@ -67,16 +80,24 @@ async function doReject(row: DocItem) {
     <el-skeleton v-if="loading && !list.length" :rows="5" animated />
     <el-table v-else v-loading="loading" :data="list" empty-text="没有待确认的文档">
       <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
-      <el-table-column label="建议领域" width="110">
+      <el-table-column label="领域（可改）" width="150">
         <template #default="{ row }">
-          {{ fieldLabels[(row.suggestedField ?? row.field) as Field] }}
+          <el-select v-model="row.suggestedField" size="small" style="width: 100%">
+            <el-option v-for="(label, v) in fieldLabels" :key="v" :label="label" :value="v" />
+          </el-select>
         </template>
       </el-table-column>
-      <el-table-column label="建议密级" width="110">
+      <el-table-column label="密级（可改）" width="150">
         <template #default="{ row }">
-          <el-tag size="small" effect="plain">
-            {{ sensitivityLabels[(row.suggestedSensitivity ?? row.sensitivity) as Sensitivity] }}
-          </el-tag>
+          <el-select v-model="row.suggestedSensitivity" size="small" style="width: 100%">
+            <el-option
+              v-for="(label, v) in sensitivityLabels"
+              :key="v"
+              :label="label"
+              :value="v"
+              :disabled="v === 'top_secret' && !isOwner()"
+            />
+          </el-select>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="180">
@@ -96,7 +117,13 @@ async function doReject(row: DocItem) {
         </el-form-item>
         <el-form-item label="密级">
           <el-select v-model="form.sensitivity" style="width: 100%">
-            <el-option v-for="(label, v) in sensitivityLabels" :key="v" :label="label" :value="v" />
+            <el-option
+              v-for="(label, v) in sensitivityLabels"
+              :key="v"
+              :label="label"
+              :value="v"
+              :disabled="v === 'top_secret' && !isOwner()"
+            />
           </el-select>
         </el-form-item>
       </el-form>
