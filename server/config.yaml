@@ -6,6 +6,11 @@ search:
   fetchLimit: 30
   keep: 5
   maxPages: 2
+  # 取前 N 条读整页重排：search 只回一片 chunk，页面后段的结论会被截掉。
+  rerankCandidates: 12
+  coverageWeight: 0.6
+  # 每条资料送进模型的字数上限（长页面按命中位置取窗口）。
+  pageChars: 4000
   # 检索前从问题里删掉这些说法，留下设备名和故障码。按长到短匹配。
   # 只写至少两个字的短语，不要写「的」「了」「用」这种单字。
   questionPhrases: [怎么处理, 如何处理, 怎么办, 如何, 是什么]

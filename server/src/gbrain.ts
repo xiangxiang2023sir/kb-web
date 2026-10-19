@@ -108,6 +108,33 @@ export async function searchGBrain(config: AppConfig, query: string, limit: numb
     .filter((r) => r.slug)
 }
 
+/**
+ * 读整页正文。search 只回一片 chunk，页面后段的结论会被截掉，
+ * 所以候选命中要再取一次整页，交给模型通读。
+ */
+export async function pageBodyGBrain(config: AppConfig, slug: string): Promise<string> {
+  const stdout = await runGBrain(config, ['get', slug, '--body'], Math.min(config.gbrain.timeoutMs, 20000))
+  return stripPageOutput(stdout)
+}
+
+/** 去掉升级提示等非正文行，以及 YAML frontmatter。 */
+function stripPageOutput(stdout: string): string {
+  const lines = stdout.split('\n').filter((line) => {
+    const t = line.trim()
+    if (t.startsWith('UPGRADE_AVAILABLE')) return false
+    if (/^gbrain \S+ -> \S+ available/.test(t)) return false
+    if (t.includes('self-upgrade')) return false
+    if (t.startsWith('[gbrain]')) return false
+    return true
+  })
+  let text = lines.join('\n').trim()
+  if (text.startsWith('---')) {
+    const end = text.indexOf('\n---', 3)
+    if (end > 0) text = text.slice(end + 4).trim()
+  }
+  return text
+}
+
 export async function captureGBrain(config: AppConfig, file: string, slug: string) {
   // --force：同 slug 重复确认（重新入库）时直接替换旧页，否则 GBrain 报 revision_required
   await runGBrain(config, ['capture', '--file', file, '--slug', slug, '--force'], config.gbrain.timeoutMs * 2)

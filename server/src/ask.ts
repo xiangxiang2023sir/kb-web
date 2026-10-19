@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws'
 import { canSee, parseSlug } from './access.js'
 import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User } from './config.js'
 import { KbDb, newId } from './db.js'
-import { GBrainError, searchGBrain } from './gbrain.js'
+import { GBrainError, pageBodyGBrain, searchGBrain } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
 import { isSmallTalk, searchQueryOf, searchTermsOf } from './text.js'
 
@@ -165,7 +165,7 @@ export async function runAsk(
   for (const citation of citations) emit({ type: 'citation', questionId, citation })
 
   const history = db.recentMessages(sessionId, 6).map((m) => ({ role: m.role, content: m.text }))
-  const evidence = hits.map((hit, i) => `[${i + 1}] ${hit.title}\n${hit.chunkText}`).join('\n\n')
+  const evidence = hits.map((hit, i) => `[${i + 1}] ${hit.title}\n${evidenceOf(hit, config.search.pageChars)}`).join('\n\n')
   const userContent = `${photoNote ? `照片中可见：\n${photoNote}\n\n` : ''}资料：\n${evidence}\n\n问题：\n${question || '请结合照片和资料说明'}`
   let answer = ''
   try {
@@ -218,23 +218,79 @@ interface KeptHit {
   score: number
   field: Field
   sensitivity: Sensitivity
+  /** 整页正文（取不到时为空，回落到 chunkText） */
+  body?: string
+  /** 重排名次分，只用于排序，不对外显示 */
+  rank?: number
 }
 
+/**
+ * 检索三步：
+ * 1) GBrain 关键词检索，按领域/密级过滤，攒够 rerankCandidates 条候选；
+ * 2) 候选逐条读整页正文（search 只给一片 chunk，结论常在页面后段）；
+ * 3) 用「归一化 GBrain 分 + 整页命中覆盖率」重排，取前 keep 条给模型。
+ */
 async function collectHits(config: AppConfig, user: User, query: string) {
+  const want = Math.max(config.search.rerankCandidates, config.search.keep)
   const seen = new Set<string>()
-  const hits: KeptHit[] = []
-  for (let page = 0; page < config.search.maxPages && hits.length < config.search.keep; page++) {
+  const candidates: KeptHit[] = []
+  for (let page = 0; page < config.search.maxPages && candidates.length < want; page++) {
     const rows = await searchGBrain(config, query, config.search.fetchLimit, page * config.search.fetchLimit)
     if (rows.length === 0) break
     for (const row of rows) {
       const parsed = parseSlug(row.slug)
       if (!parsed || seen.has(row.slug) || !canSee(user, parsed.field, parsed.sensitivity)) continue
       seen.add(row.slug)
-      hits.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
-      if (hits.length >= config.search.keep) break
+      candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
+      if (candidates.length >= want) break
     }
   }
-  return hits
+  if (candidates.length === 0) return candidates
+
+  await fillBodies(config, candidates)
+
+  const terms = query.split(/\s+/).filter(Boolean)
+  const weightOf = (term: string) => (term.length >= 4 ? 3 : term.length === 3 ? 2 : 1)
+  const totalWeight = terms.reduce((sum, term) => sum + weightOf(term), 0) || 1
+  const maxScore = candidates.reduce((max, hit) => Math.max(max, hit.score), 0) || 1
+  for (const hit of candidates) {
+    const text = hit.body || hit.chunkText
+    const covered = terms.reduce((sum, term) => (text.includes(term) ? sum + weightOf(term) : sum), 0)
+    hit.rank = hit.score / maxScore + config.search.coverageWeight * (covered / totalWeight)
+  }
+  candidates.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))
+  return candidates.slice(0, config.search.keep)
+}
+
+/** 并发读整页，单个页面失败不影响其余候选。 */
+async function fillBodies(config: AppConfig, hits: KeptHit[]) {
+  const queue = [...hits]
+  const worker = async () => {
+    for (;;) {
+      const hit = queue.shift()
+      if (!hit) return
+      try {
+        hit.body = await pageBodyGBrain(config, hit.slug)
+      } catch {
+        hit.body = ''
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, hits.length) }, worker))
+}
+
+/**
+ * 送进模型的资料正文：整页不超过上限就整页给；
+ * 超长页（如几万字的规程汇编）按命中片段的位置取窗口，避免整段截掉结论。
+ */
+function evidenceOf(hit: KeptHit, pageChars: number): string {
+  const body = hit.body || hit.chunkText
+  if (body.length <= pageChars) return body
+  const anchor = hit.chunkText.slice(0, 60)
+  const at = anchor ? body.indexOf(anchor) : -1
+  if (at < 0) return body.slice(0, pageChars)
+  const start = Math.max(0, at - Math.floor(pageChars * 0.35))
+  return `${start > 0 ? '（前面章节略）\n' : ''}${body.slice(start, start + pageChars)}`
 }
 
 function persist(
