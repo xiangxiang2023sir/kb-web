@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { adminApi } from '@/api/endpoints'
 import { useAuthStore } from '@/stores/auth'
 import type { DocItem, Field, Sensitivity } from '@/types'
 import { fieldLabels, sensitivityLabels } from '@/utils/labels'
 
 const auth = useAuthStore()
+const router = useRouter()
+
+function openDetail(row: DocItem) {
+  router.push(`/admin/docs/${row.id}`)
+}
 /** 管理员不能确认绝密，只有主人可以 */
 const isOwner = () => auth.user?.role === 'owner'
 
@@ -79,7 +85,11 @@ async function doReject(row: DocItem) {
   <div class="page-card">
     <el-skeleton v-if="loading && !list.length" :rows="5" animated />
     <el-table v-else v-loading="loading" :data="list" empty-text="没有待确认的文档">
-      <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+      <el-table-column label="标题" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">
+          <el-link type="primary" :underline="true" @click="openDetail(row)">{{ row.title }}</el-link>
+        </template>
+      </el-table-column>
       <el-table-column label="领域（可改）" width="150">
         <template #default="{ row }">
           <el-select v-model="row.suggestedField" size="small" style="width: 100%">
@@ -100,8 +110,9 @@ async function doReject(row: DocItem) {
           </el-select>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="180">
+      <el-table-column label="操作" width="250">
         <template #default="{ row }">
+          <el-button size="small" @click="openDetail(row)">查看</el-button>
           <el-button size="small" type="primary" @click="openConfirm(row)">确认入库</el-button>
           <el-button size="small" type="danger" plain @click="doReject(row)">驳回</el-button>
         </template>

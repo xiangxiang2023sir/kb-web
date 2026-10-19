@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import MarkdownIt from 'markdown-it'
 import { adminApi } from '@/api/endpoints'
 import type { DocDetail } from '@/types'
 import { docStatusLabels, fieldLabels, formatTime, sensitivityLabels } from '@/utils/labels'
 
+// html: false —— 转义原始 HTML，防注入（与对话页一致）
+const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
+const renderMd = (text: string) => md.render(text)
+
 const route = useRoute()
+const router = useRouter()
 const doc = ref<DocDetail | null>(null)
 
 onMounted(async () => {
@@ -15,6 +21,9 @@ onMounted(async () => {
 
 <template>
   <div v-if="doc" class="page-card">
+    <div style="margin-bottom: 12px">
+      <el-button size="small" plain @click="router.back()">← 返回</el-button>
+    </div>
     <el-descriptions :column="2" border>
       <el-descriptions-item label="标题">{{ doc.title }}</el-descriptions-item>
       <el-descriptions-item label="状态">{{ docStatusLabels[doc.status] }}</el-descriptions-item>
@@ -33,7 +42,7 @@ onMounted(async () => {
     </el-descriptions>
 
     <h3>内容</h3>
-    <div class="doc-content">{{ doc.content }}</div>
+    <div class="doc-content markdown" v-html="renderMd(doc.content)"></div>
 
     <template v-if="doc.referencedBy.length">
       <h3>被以下对话引用</h3>
