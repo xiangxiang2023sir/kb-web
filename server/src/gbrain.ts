@@ -118,3 +118,25 @@ export async function orphanGBrain(config: AppConfig): Promise<{ slug: string; t
   const parsed = parseJson(stdout) as { orphans?: { slug?: string; title?: string }[] } | null
   return (parsed?.orphans ?? []).map((o) => ({ slug: String(o.slug ?? ''), title: String(o.title ?? o.slug ?? '') })).filter((o) => o.slug)
 }
+
+export interface GBrainPage {
+  slug: string
+  title: string
+}
+
+export async function listGBrain(config: AppConfig): Promise<GBrainPage[]> {
+  const stdout = await runGBrain(config, ['list'])
+  // 每行格式: slug\ttype\tdate\ttitle
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('No pages'))
+    .map((line) => {
+      const parts = line.split('\t')
+      return {
+        slug: parts[0] ?? '',
+        title: parts[3] ?? parts[0] ?? '',
+      }
+    })
+    .filter((p) => p.slug)
+}

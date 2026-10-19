@@ -8,7 +8,7 @@ import { assertCanConfirm, parseSlug } from './access.js'
 import { cancelAll, cancelAsk, contextOf, handleAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
-import { GBrainError, captureGBrain } from './gbrain.js'
+import { GBrainError, captureGBrain, listGBrain } from './gbrain.js'
 import { runHealth } from './health.js'
 import { classifyText } from './llm.js'
 import {
@@ -337,6 +337,43 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     res.json({ list: list.slice((page - 1) * size, page * size).map(({ slug: _s, ...item }) => item), total: list.length })
   })
 
+  // 同步 GBrain 已入库页面到 sqlite 登记表（只登记元数据，不存正文）
+  app.post(
+    '/api/admin/docs/sync',
+    requireAdmin,
+    asyncRoute(async (_req, res) => {
+      const pages = await listGBrain(config)
+      let synced = 0
+      let skipped = 0
+      for (const page of pages) {
+        // 检查是否已登记
+        const existing = db.findDocBySlug(page.slug)
+        if (existing) {
+          skipped++
+          continue
+        }
+        // 从 slug 解析领域和密级: 领域/密级/名字
+        const parts = page.slug.split('/')
+        const field = isField(parts[0]) ? parts[0] : 'dispatch'
+        const sensitivity = isSensitivity(parts[1]) ? parts[1] : 'internal'
+        db.insertDoc({
+          id: newId('doc'),
+          title: page.title,
+          field,
+          sensitivity,
+          status: 'confirmed',
+          suggestedField: field,
+          suggestedSensitivity: sensitivity,
+          content: '', // 正文不存，用时从 GBrain 取
+          updatedAt: new Date().toISOString(),
+          sourcePath: page.slug,
+        })
+        synced++
+      }
+      res.json({ synced, skipped, total: pages.length })
+    }),
+  )
+
   app.get(
     '/api/admin/docs/:id',
     requireAdmin,
@@ -543,6 +580,14 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ message: '未实现' })
+  })
+
+  // 静态文件：托管前端打包产物（dist/），非 /api 请求返回 index.html（SPA 路由）
+  const distDir = join(serverRoot, '..', 'dist')
+  app.use(express.static(distDir, { index: false }))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next()
+    res.sendFile(join(distDir, 'index.html'))
   })
 
   app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
