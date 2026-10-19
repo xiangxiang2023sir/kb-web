@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
 import { useAuthStore } from '@/stores/auth'
 import type { Field, Role, User } from '@/types'
@@ -37,6 +37,35 @@ async function approve(row: PendingUser) {
     await Promise.all([loadPending(), load()])
   } catch {
     ElMessage.error('批准失败')
+  }
+}
+
+async function doDelete(u: User) {
+  if (u.id === auth.user?.id) {
+    ElMessage.warning('不能删除自己')
+    return
+  }
+  if ((u.role === 'owner' || u.role === 'admin') && !isOwner.value) {
+    ElMessage.warning('只有主人能删除管理员或主人账号')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除用户「${u.name}」？该用户的会话和外部绑定会一并清除。`, '删除用户', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.deleteUser(u.id)
+    ElMessage.success('已删除')
+    void load()
+  } catch (err) {
+    const msg =
+      (err as { response?: { data?: { message?: string } } })?.response?.data?.message || '删除失败'
+    ElMessage.error(msg)
   }
 }
 
@@ -159,9 +188,10 @@ async function save() {
       <el-table-column label="领域" width="120">
         <template #default="{ row }">{{ row.field ? fieldLabels[row.field as Field] : '全部' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="120">
+      <el-table-column label="操作" width="190">
         <template #default="{ row }">
-          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button v-if="isOwner" size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" text type="danger" @click="doDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

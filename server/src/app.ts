@@ -632,6 +632,25 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   )
 
   // 管理员指派问题时也要名单；增改用户仍仅主人
+  // ---- 删除用户（管理员可删操作员/游客；删管理员或主人需主人；不能删自己；不能删最后一个主人） ----
+  app.delete(
+    '/api/admin/users/:id',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const me = userOf(res)!
+      const id = String(req.params.id)
+      const target = db.findUserByIdPlain(id)
+      if (!target) throw new HttpError(404, '用户不存在')
+      if (target.id === me.id) throw new HttpError(400, '不能删除自己')
+      if (target.role === 'owner' || target.role === 'admin') {
+        if (me.role !== 'owner') throw new HttpError(403, '只有主人能删除管理员或主人账号')
+        if (target.role === 'owner' && db.ownerCount() <= 1) throw new HttpError(400, '至少要保留一个主人账号')
+      }
+      db.deleteUser(id)
+      res.json({ ok: true, deleted: target.name })
+    }),
+  )
+
   // ---- 注册审批 ----
   app.get('/api/admin/users/pending', requireAdmin, (_req, res) => {
     res.json(db.pendingUsers())

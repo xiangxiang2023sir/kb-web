@@ -433,6 +433,25 @@ export class KbDb {
     }))
   }
 
+  /** 删用户：连带清掉会话与外部身份绑定 */
+  deleteUser(id: string) {
+    this.run(`DELETE FROM auth_sessions WHERE user_id = ?`, id)
+    this.run(`DELETE FROM agent_identities WHERE user_id = ?`, id)
+    this.run(`DELETE FROM bind_codes WHERE user_id = ?`, id)
+    this.run(`DELETE FROM users WHERE id = ?`, id)
+  }
+
+  /** 还剩几个主人（防把最后一个主人删掉） */
+  ownerCount(): number {
+    const row = this.one(`SELECT COUNT(*) AS n FROM users WHERE role = 'owner' AND status = 'approved'`)
+    return Number(row?.n ?? 0)
+  }
+
+  findUserByIdPlain(id: string): { id: string; name: string; role: Role } | null {
+    const row = this.one(`SELECT id, name, role FROM users WHERE id = ?`, id)
+    return row ? { id: String(row.id), name: String(row.name), role: row.role as Role } : null
+  }
+
   approveUser(id: string, role: Role, field: Field | null) {
     this.run(`UPDATE users SET status = 'approved', role = ?, field = ? WHERE id = ?`, role, field, id)
   }

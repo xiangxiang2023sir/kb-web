@@ -149,6 +149,7 @@ export const adminApi = {
     http.post('/admin/users', payload),
   updateUser: (id: string, payload: { role?: Role; field?: Field | null }) =>
     http.patch(`/admin/users/${id}`, payload),
+  deleteUser: (id: string) => http.delete(`/admin/users/${id}`).then((r) => r.data),
 }
 
 // ---------- 找小A（Hermes 网关，管理端） ----------
