@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from 'node:http'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import Busboy from 'busboy'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -119,7 +119,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   for (const doc of db.confirmedDocs()) {
     const parsed = parseSlug(doc.slug)
     if (!parsed) continue
-    const markdown = toMarkdown(doc.title, parsed.field, parsed.sensitivity, doc.content)
+    const markdown = toMarkdown(doc.title, parsed.field, parsed.sensitivity, doc.content, originNameOf(dataDir, doc.sourcePath))
     const corpus = join(dataDir, 'corpus', `${doc.slug}.md`)
     let current = ''
     try {
@@ -382,8 +382,24 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const doc = db.getDoc(req.params.id)
       if (!doc) throw new HttpError(404, '文档不存在')
       if (doc.sensitivity === 'top_secret' && userOf(res)!.role !== 'owner') throw new HttpError(403, '无权限')
-      const { slug: _s, sourcePath: _p, ...detail } = doc
-      res.json(detail)
+      const { slug: _s, sourcePath, ...detail } = doc
+      res.json({ ...detail, hasOriginal: originalFileOf(dataDir, sourcePath) !== null })
+    }),
+  )
+
+  // 下载原件：只认 data/inbox 里的文件，路径做前缀校验，防目录穿越
+  app.get(
+    '/api/admin/docs/:id/original',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const doc = db.getDoc(req.params.id)
+      if (!doc) throw new HttpError(404, '文档不存在')
+      if (doc.sensitivity === 'top_secret' && userOf(res)!.role !== 'owner') throw new HttpError(403, '无权限')
+      const file = originalFileOf(dataDir, doc.sourcePath)
+      if (!file) throw new HttpError(404, '这份文档没有留存原件（早期入库或从 GBrain 同步来的）')
+      res.setHeader('Content-Type', 'application/octet-stream')
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(basename(file))}`)
+      res.end(readFileSync(file))
     }),
   )
 
@@ -430,7 +446,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!isField(field) || !isSensitivity(sensitivity)) throw new HttpError(400, '领域或密级不正确')
       assertCanConfirm(userOf(res)!, sensitivity)
       const slug = `${field}/${sensitivity}/${asciiSlug(doc.title, doc.id)}`
-      const markdown = toMarkdown(doc.title, field, sensitivity, doc.content)
+      const markdown = toMarkdown(doc.title, field, sensitivity, doc.content, originNameOf(dataDir, doc.sourcePath))
       const corpus = join(dataDir, 'corpus', `${slug}.md`)
       mkdirSync(dirname(corpus), { recursive: true })
       writeFileSync(corpus, markdown, 'utf8')
@@ -692,6 +708,20 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
 
 function readUploadFile(path: string) {
   return readFileSync(path)
+}
+
+/** 原件是否还在（必须落在 dataDir 里且是文件），返回绝对路径或 null */
+function originalFileOf(dataDir: string, sourcePath: string | null | undefined): string | null {
+  if (!sourcePath) return null
+  const abs = sourcePath
+  if (!abs.startsWith(dataDir)) return null
+  return existsSync(abs) ? abs : null
+}
+
+/** 页面里登记用的原件文件名（没有就返回 undefined） */
+function originNameOf(dataDir: string, sourcePath: string | null | undefined): string | undefined {
+  const file = originalFileOf(dataDir, sourcePath)
+  return file ? basename(file) : undefined
 }
 
 function attachWs(server: ReturnType<typeof createServer>, db: KbDb, config: AppConfig) {

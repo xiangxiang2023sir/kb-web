@@ -323,12 +323,15 @@ export class KbDb {
     return new Set(this.many(`SELECT slug FROM docs WHERE status = 'confirmed' AND slug IS NOT NULL`).map((r) => String(r.slug)))
   }
 
-  confirmedDocs(): { id: string; title: string; slug: string; content: string }[] {
-    return this.many(`SELECT id, title, slug, content FROM docs WHERE status = 'confirmed' AND slug IS NOT NULL`).map((r) => ({
+  confirmedDocs(): { id: string; title: string; slug: string; content: string; sourcePath: string | null }[] {
+    return this.many(
+      `SELECT id, title, slug, content, source_path FROM docs WHERE status = 'confirmed' AND slug IS NOT NULL`,
+    ).map((r) => ({
       id: String(r.id),
       title: String(r.title),
       slug: String(r.slug),
       content: String(r.content ?? ''),
+      sourcePath: r.source_path == null ? null : String(r.source_path),
     }))
   }
 

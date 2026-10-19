@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -167,6 +167,26 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
       body: JSON.stringify({ field: 'electrical', sensitivity: 'top_secret' }),
     })
     assert.equal(forbidden.status, 403)
+
+    // ---- 原件留存：服务器上能下载，页面里登记，权限跟密级走 ----
+    const detail = await fetch(`${base}/api/admin/docs/${doc.id}`, { headers: { cookie } })
+    assert.equal(detail.status, 200)
+    assert.equal((await detail.json()).hasOriginal, true)
+
+    const original = await fetch(`${base}/api/admin/docs/${doc.id}/original`, { headers: { cookie } })
+    assert.equal(original.status, 200)
+    assert.match(original.headers.get('content-disposition') ?? '', /filename\*=UTF-8''/)
+    assert.ok((await original.text()).includes('绝缘电阻'))
+
+    // 这份是 top_secret，admin 不能下
+    const deniedOriginal = await fetch(`${base}/api/admin/docs/${doc.id}/original`, { headers: { cookie: adminCookie } })
+    assert.equal(deniedOriginal.status, 403)
+
+    // 入库的页面里应登记原件名（迁移时能顺藤摸到原件）
+    const corpusFiles = (readdirSync(join(dir, 'corpus'), { recursive: true }) as string[]).filter((f) => f.endsWith('.md'))
+    assert.ok(corpusFiles.length > 0)
+    const pageText = readFileSync(join(dir, 'corpus', corpusFiles[0]), 'utf8')
+    assert.ok(pageText.includes('**原件**'), '页面应登记原件')
 
     const adminUsers = await fetch(`${base}/api/admin/users`, { headers: { cookie: adminCookie } })
     assert.equal(adminUsers.status, 200)

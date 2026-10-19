@@ -115,6 +115,8 @@ export interface DocItem {
 export interface DocDetail extends DocItem {
   content: string
   referencedBy: { sessionId: string; question: string; askedAt: string }[]
+  /** 服务器上是否留存了上传原件（可下载核对） */
+  hasOriginal?: boolean
 }
 
 export interface UploadResult {

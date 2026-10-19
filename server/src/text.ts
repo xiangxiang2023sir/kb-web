@@ -103,9 +103,17 @@ export function asciiSlug(title: string, id: string): string {
   return `${ascii || 'doc'}-${id.slice(-6)}`
 }
 
-export function toMarkdown(title: string, field: Field, sensitivity: Sensitivity, body: string): string {
+export function toMarkdown(
+  title: string,
+  field: Field,
+  sensitivity: Sensitivity,
+  body: string,
+  originName?: string,
+): string {
   const safeTitle = title.replace(/"/g, '\\"')
-  return `---\ntitle: "${safeTitle}"\ntype: note\ntags:\n  - ${field}\n  - ${sensitivity}\n---\n\n${body.trim()}\n`
+  // 原件留在服务器上（data/inbox），页面里登记文件名，检索时能顺藤摸到原件
+  const origin = originName ? `\n---\n\n> **原件**：${originName}（kb-web 上传，原件保存在服务器 data/inbox/）\n` : ''
+  return `---\ntitle: "${safeTitle}"\ntype: note\ntags:\n  - ${field}\n  - ${sensitivity}\n---\n\n${body.trim()}\n${origin}`
 }
 
 export async function extractText(filePath: string, filename: string): Promise<string> {
