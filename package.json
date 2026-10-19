@@ -10,7 +10,8 @@
     "tunnel": "cloudflared tunnel --url http://127.0.0.1:3000",
     "tunnel:named": "cloudflared tunnel run kb-web",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify": "npm --prefix server run typecheck && npm --prefix server test && npm run build"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

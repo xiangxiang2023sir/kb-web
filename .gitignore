@@ -5,3 +5,5 @@ dist
 server/node_modules
 server/data
 server/.env
+server/run.log
+server/*.log

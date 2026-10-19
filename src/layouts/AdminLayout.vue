@@ -13,6 +13,7 @@ import {
   QuestionFilled,
   User,
   ChatDotRound,
+  ChatLineRound,
   SwitchButton,
 } from '@element-plus/icons-vue'
 
@@ -59,6 +60,10 @@ async function logout() {
         <el-menu-item index="/admin/questions">
           <el-icon><QuestionFilled /></el-icon>
           <span>问题队列</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/assistant">
+          <el-icon><ChatLineRound /></el-icon>
+          <span>AI知识库管理助手</span>
         </el-menu-item>
         <el-menu-item v-if="auth.user?.role === 'owner'" index="/admin/users">
           <el-icon><User /></el-icon>

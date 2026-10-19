@@ -112,3 +112,69 @@ export const adminApi = {
   updateUser: (id: string, payload: { role?: Role; field?: Field | null }) =>
     http.patch(`/admin/users/${id}`, payload),
 }
+
+// ---------- 找小A（Hermes 网关，管理端） ----------
+export interface AssistantTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export const assistantApi = {
+  /**
+   * 流式对话：POST /api/admin/assistant/chat（SSE）。
+   * 每收到一段增量文本回调 onDelta，返回完整回答。用 fetch 读流（axios 不支持）。
+   */
+  async chat(
+    turns: AssistantTurn[],
+    onDelta: (text: string) => void,
+    signal?: AbortSignal,
+    images: string[] = [],
+  ): Promise<string> {
+    const base = import.meta.env.VITE_API_BASE || '/api'
+    const res = await fetch(`${base}/admin/assistant/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ messages: turns, images }),
+      signal,
+    })
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      throw new Error(`HTTP ${res.status} ${detail.slice(0, 200)}`)
+    }
+    if (!res.body) throw new Error('当前浏览器不支持流式读取')
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let full = ''
+
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let cut: number
+      while ((cut = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, cut)
+        buffer = buffer.slice(cut + 2)
+        let event = 'message'
+        let data = ''
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim()
+          else if (line.startsWith('data:')) data += line.slice(5).trim()
+        }
+        if (!data) continue
+        const json = JSON.parse(data)
+        if (event === 'delta' && json.text) {
+          full += json.text
+          onDelta(json.text)
+        } else if (event === 'done') {
+          full = json.text ?? full
+        } else if (event === 'error') {
+          throw new Error(json.message || '小A 出错了')
+        }
+      }
+    }
+    return full
+  },
+}

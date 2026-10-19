@@ -10,6 +10,7 @@ import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type R
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
 import { GBrainError, captureGBrain, listGBrain } from './gbrain.js'
 import { runHealth } from './health.js'
+import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
 import { classifyText } from './llm.js'
 import {
   challengeOf,
@@ -575,6 +576,78 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         passwordHash: password ? hashPassword(password) : undefined,
       })
       res.json(db.findUserById(current.id))
+    }),
+  )
+
+  // ---- 找小A：把管理端的对话转给本机 Hermes 网关（小A），流式回传 ----
+  app.post(
+    '/api/admin/assistant/chat',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const rawTurns = Array.isArray(req.body?.messages) ? req.body.messages : []
+      const turns: HermesTurn[] = rawTurns
+        .filter(
+          (m: unknown): m is { role: 'user' | 'assistant'; content: string } =>
+            Boolean(m) &&
+            ((m as { role?: string }).role === 'user' || (m as { role?: string }).role === 'assistant') &&
+            typeof (m as { content?: unknown }).content === 'string',
+        )
+        .slice(-20)
+        .map((m: { role: 'user' | 'assistant'; content: string }) => ({ role: m.role, content: String(m.content).slice(0, 8000) }))
+      if (!turns.length) throw new HttpError(400, '消息不能为空')
+      if (!hermesConfigured()) throw new HttpError(503, '未配置 HERMES_API_KEY（server/.env）')
+
+      // 截图：前端先传到 /api/chat/uploads，把返回的 url 或 id 放这里；这里转成 base64 交给小A
+      const rawImages = Array.isArray(req.body?.images) ? req.body.images : []
+      const dataUrls: string[] = []
+      for (const item of rawImages.slice(0, 4)) {
+        const raw = String(item ?? '')
+        const id = raw.includes('/api/chat/uploads/')
+          ? raw.slice(raw.indexOf('/api/chat/uploads/') + '/api/chat/uploads/'.length).split('?')[0]
+          : raw
+        const row = id ? db.getUpload(id) : undefined
+        if (!row) continue
+        dataUrls.push(`data:${row.mime};base64,${readUploadFile(row.path).toString('base64')}`)
+      }
+
+      const user = userOf(res)!
+      if (turns[0].role === 'user') {
+        const first = turns[0].content
+        turns[0] = {
+          role: 'user',
+          content: `［来自 kb-web 管理端「AI知识库管理助手」，提问人：${user.name}／${user.role}］\n${
+            typeof first === 'string' ? first : ''
+          }`,
+        }
+      }
+      if (dataUrls.length) {
+        const last = turns[turns.length - 1]
+        if (last && last.role === 'user') {
+          const text = typeof last.content === 'string' ? last.content : ''
+          turns[turns.length - 1] = {
+            role: 'user',
+            content: [
+              { type: 'text', text: text || '（请看这几张截图）' },
+              ...dataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
+            ],
+          }
+        }
+      }
+
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+      res.setHeader('Cache-Control', 'no-cache, no-transform')
+      res.setHeader('Connection', 'keep-alive')
+      res.flushHeaders()
+
+      const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+      try {
+        const answer = await askHermesStream(turns, { onDelta: (text) => send('delta', { text }) })
+        send('done', { text: answer })
+      } catch (err) {
+        send('error', { message: (err as Error).message })
+      } finally {
+        res.end()
+      }
     }),
   )
 
