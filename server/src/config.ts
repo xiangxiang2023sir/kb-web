@@ -34,7 +34,7 @@ export interface AppConfig {
   }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
-  chat: { phrases: string[]; fallback: string }
+  chat: { phrases: string[]; fallback: string; ackText: string; questionWords: string[] }
   keywords: Record<Field, string[]>
   sensitivityKeywords: { top_secret: string[]; confidential: string[]; public: string[] }
   defaults: { field: Field; sensitivity: Sensitivity }
@@ -128,6 +128,11 @@ export function loadConfig(): AppConfig {
       fallback: String(
         raw.chat?.fallback ?? '你好，我是工厂知识库助手。问设备、规程或故障时我会按资料回答。',
       ),
+      ackText: String(raw.chat?.ackText ?? '知道了。要不要把这条存进知识库？'),
+      questionWords:
+        raw.chat?.questionWords == null
+          ? ['怎么', '如何', '为什么', '是什么', '什么', '多少', '在哪', '哪里', '哪个', '能不能', '是否', '有没有', '吗']
+          : asStringArray(raw.chat.questionWords),
     },
     keywords: {
       electrical: asStringArray(raw.keywords?.electrical),

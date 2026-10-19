@@ -115,12 +115,22 @@ function retry(m: ChatMessage) {
 
             <CitationCard v-for="(c, i) in m.citations" :key="c.id" :citation="c" :index="i + 1" />
 
-            <div v-if="m.phase === 'done' && (m.confidence || needsQueue(m))" class="msg-footer">
+            <div v-if="m.phase === 'done'" class="msg-footer">
               <ConfidenceBadge
                 v-if="m.confidence"
                 :level="m.confidence.level"
                 :score="m.confidence.score"
               />
+              <el-tag v-if="m.acknowledged" size="small" type="info" effect="plain">这是告知，未查知识库</el-tag>
+              <el-button
+                size="small"
+                type="success"
+                plain
+                :disabled="m.savedToKb"
+                @click="chat.saveToKb(m)"
+              >
+                {{ m.savedToKb ? '已提交待确认' : '存入知识库' }}
+              </el-button>
               <el-alert v-if="needsQueue(m)" type="warning" :closable="false" show-icon title="回答依据不足">
                 <template #default>
                   <div class="queue-tip">

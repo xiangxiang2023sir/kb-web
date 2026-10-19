@@ -203,6 +203,22 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     assert.ok(events.some((e) => e.type === 'done'))
     assert.ok(events.some((e) => e.type === 'session' && typeof e.sessionId === 'string'))
 
+    const told = await ask(base, cookie, '我改成了 0.5 米每秒，记录一下')
+    assert.ok(told.some((e) => e.type === 'status' && e.phase === 'acknowledged'), '告知应走确认分支')
+    assert.ok(!told.some((e) => e.type === 'citation'), '告知不应检索出引用')
+    assert.ok(told.some((e) => e.type === 'done'))
+
+    const saved = await fetch(`${base}/api/chat/save-to-kb`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: '现场参数', answer: '行走速度改成 0.5 m/s', citations: [] }),
+    })
+    assert.equal(saved.status, 200)
+    assert.equal((await saved.json()).ok, true)
+    const pending = await fetch(`${base}/api/admin/docs?status=pending`, { headers: { cookie } })
+    const pendingBody = (await pending.json()) as { list: { title: string }[]; total: number }
+    assert.ok(pendingBody.list.some((d) => d.title.startsWith('[对话沉淀]')), '对话沉淀应进待确认')
+
     const hi = await ask(base, cookie, '你好')
     assert.ok(!hi.some((e) => e.type === 'status' && e.phase === 'no_evidence'))
     assert.ok(hi.some((e) => e.type === 'delta'))

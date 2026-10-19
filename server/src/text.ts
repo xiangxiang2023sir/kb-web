@@ -116,6 +116,22 @@ export function toMarkdown(
   return `---\ntitle: "${safeTitle}"\ntype: note\ntags:\n  - ${field}\n  - ${sensitivity}\n---\n\n${body.trim()}\n${origin}`
 }
 
+/**
+ * 判「告知/陈述」而不是「提问」：没有问号、没有疑问词、长度够 → 不查库，只回确认。
+ * questionWords 放 config.yaml（可按项目加词），改词不用改代码。
+ */
+export function looksLikeStatement(text: string, questionWords: string[]): boolean {
+  const n = (text || '').trim()
+  if (!n) return false
+  if (/[?？]/.test(n)) return false
+  const low = n.toLowerCase()
+  for (const w of questionWords) {
+    const word = String(w || '').trim().toLowerCase()
+    if (word && low.includes(word)) return false
+  }
+  return n.length >= 4
+}
+
 export async function extractText(filePath: string, filename: string): Promise<string> {
   const ext = extname(filename).toLowerCase()
   if (ext === '.md' || ext === '.txt') return readFile(filePath, 'utf8')

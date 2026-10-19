@@ -4,7 +4,7 @@ import { wsClient } from '@/api/ws'
 import { chatApi, questionApi } from '@/api/endpoints'
 import type { ChatAttachment, Citation, ConfidenceLevel, WsServerMessage } from '@/types'
 
-export type MessagePhase = 'retrieving' | 'generating' | 'done' | 'no_evidence' | 'error'
+export type MessagePhase = 'retrieving' | 'generating' | 'done' | 'no_evidence' | 'acknowledged' | 'error'
 
 export interface ChatMessage {
   id: string
@@ -19,6 +19,10 @@ export interface ChatMessage {
   /** 检索阶段被告知依据不足（用于结束后提示转入问题队列） */
   noEvidence?: boolean
   submittedToQueue?: boolean
+  /** 这条回答已提交入库（待确认） */
+  savedToKb?: boolean
+  /** 这条是「告知」而不是提问：没查库，只回确认 */
+  acknowledged?: boolean
   createdAt: number
 }
 
@@ -156,6 +160,7 @@ export const useChatStore = defineStore('chat', {
         case 'status':
           m.phase = msg.phase
           if (msg.phase === 'no_evidence') m.noEvidence = true
+          if (msg.phase === 'acknowledged') m.acknowledged = true
           break
         case 'delta':
           m.text += msg.text
@@ -188,6 +193,24 @@ export const useChatStore = defineStore('chat', {
       const m = this.activeMessage()
       if (m) m.phase = 'done'
       this.finish(this.activeQuestionId)
+    },
+
+    /** 把这条回答（或这条告知）沉淀进知识库：进「待确认」，管理员确认后才入库 */
+    async saveToKb(m: ChatMessage) {
+      const idx = this.messages.indexOf(m)
+      const userMsg = [...this.messages.slice(0, idx)].reverse().find((x) => x.role === 'user')
+      try {
+        const res = await chatApi.saveToKb({
+          question: userMsg?.text ?? '',
+          answer: m.text,
+          sessionId: this.sessionId,
+          citations: m.citations.map((c) => ({ title: c.title })),
+        })
+        m.savedToKb = true
+        ElMessage.success(res.duplicate ? '这条已经在待确认队列里了' : '已提交，管理员确认后入库')
+      } catch {
+        ElMessage.error('提交失败，请重试')
+      }
     },
 
     /** 依据不足的回答转入问题队列 */

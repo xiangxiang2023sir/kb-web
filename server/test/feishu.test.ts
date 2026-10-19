@@ -26,7 +26,7 @@ function stubConfig(over: Partial<AppConfig['feishu']> = {}): AppConfig {
     search: { fetchLimit: 10, keep: 5, maxPages: 1, questionPhrases: [], rerankCandidates: 0, coverageWeight: 0.6, pageChars: 4000 },
     confidence: { highMin: 0.03, mediumMin: 0.015 },
     noEvidence: { text: '没有资料', score: 0.2 },
-    chat: { phrases: ['你好'], fallback: '你好' },
+    chat: { phrases: ['你好'], fallback: '你好', ackText: '知道了', questionWords: ['怎么', '如何', '吗'] },
     keywords: { electrical: [], mechanical: [], dispatch: [] },
     sensitivityKeywords: { top_secret: [], confidential: [], public: [] },
     defaults: { field: 'electrical', sensitivity: 'internal' },

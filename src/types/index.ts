@@ -59,7 +59,7 @@ export type WsClientMessage =
   | { type: 'ping' }
 
 /** 检索/生成阶段；no_evidence 表示知识库依据不足 */
-export type WsPhase = 'retrieving' | 'generating' | 'no_evidence'
+export type WsPhase = 'retrieving' | 'generating' | 'no_evidence' | 'acknowledged'
 
 /** 后端 → 前端 */
 export type WsServerMessage =

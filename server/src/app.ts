@@ -292,6 +292,62 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     res.end(readUploadFile(row.path))
   })
 
+  // 把一轮对话（问题/告知 + 回答 + 出处）沉淀成待确认文档；管理员确认领域密级后才真正入库
+  app.post(
+    '/api/chat/save-to-kb',
+    requireUser,
+    asyncRoute(async (req, res) => {
+      const user = userOf(res)!
+      const question = String(req.body?.question ?? '').trim()
+      const answer = String(req.body?.answer ?? '').trim()
+      const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : ''
+      const rawCitations = Array.isArray(req.body?.citations) ? req.body.citations : []
+      if (!question && !answer) throw new HttpError(400, '没有可保存的内容')
+
+      const title = `[对话沉淀] ${(question || answer).replace(/\s+/g, ' ').slice(0, 40)}`
+      // 去重：同名待确认文档已存在就不再重复提交
+      const existing = db.listDocs({ keyword: title, hideTopSecret: false }).find((d) => d.title === title)
+      if (existing) {
+        res.json({ ok: true, duplicate: true, id: existing.id })
+        return
+      }
+
+      const cited = rawCitations
+        .map((c: unknown) => (c && typeof (c as { title?: unknown }).title === 'string' ? (c as { title: string }).title : ''))
+        .filter(Boolean)
+      const body = [
+        question ? `## ${question}` : '',
+        answer || '（现场告知，无 AI 回答）',
+        '',
+        '---',
+        '',
+        `- 来源：对话沉淀（kb-web）`,
+        `- 提问人：${user.name}／${user.role}`,
+        `- 时间：${new Date().toISOString()}`,
+        sessionId ? `- 会话：${sessionId}` : '',
+        cited.length ? `- 引用：${cited.join('；')}` : '- 引用：无（现场告知）',
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+
+      const field = config.defaults.field
+      const sensitivity = config.defaults.sensitivity
+      const id = newId('d')
+      db.insertDoc({
+        id,
+        title,
+        field,
+        sensitivity,
+        status: 'pending',
+        suggestedField: field,
+        suggestedSensitivity: sensitivity,
+        content: body,
+        updatedAt: new Date().toISOString(),
+      })
+      res.json({ ok: true, id })
+    }),
+  )
+
   app.post(
     '/api/questions',
     requireUser,

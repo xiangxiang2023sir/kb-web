@@ -5,7 +5,7 @@ import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User }
 import { KbDb, newId } from './db.js'
 import { GBrainError, pageBodyGBrain, searchGBrain } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
-import { isSmallTalk, searchQueryOf, searchTermsOf } from './text.js'
+import { isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from './text.js'
 
 export interface AskMessage {
   type: 'ask'
@@ -133,6 +133,16 @@ export async function runAsk(
       )
     }
     persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, emit)
+    emit({ type: 'done', questionId })
+    return
+  }
+
+  // 不是提问而是「告知」：不查库，只回一句确认（前端会提示可存入知识库）
+  if (!attachments.length && looksLikeStatement(question, config.chat.questionWords)) {
+    const text = config.chat.ackText
+    emit({ type: 'status', questionId, phase: 'acknowledged' })
+    for (const part of chunkText(text)) emit({ type: 'delta', questionId, text: part })
+    persist(db, user, sessionId, question, attachments, text, [], undefined, askedAt, questionId, emit)
     emit({ type: 'done', questionId })
     return
   }

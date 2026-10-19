@@ -53,6 +53,16 @@ export const chatApi = {
     form.append('file', file)
     return http.post<ChatAttachment>('/chat/uploads', form).then((r) => r.data)
   },
+  /** 把一轮对话沉淀成「待确认」文档（管理员确认后才入库） */
+  saveToKb: (payload: {
+    question: string
+    answer: string
+    sessionId?: string
+    citations?: { title: string }[]
+  }) =>
+    http
+      .post<{ ok: boolean; id?: string; duplicate?: boolean }>('/chat/save-to-kb', payload)
+      .then((r) => r.data),
   /** 生成一次性绑定码，在飞书对机器人发送「绑定 ABC123」 */
   bindFeishuCode: () => http.post<{ code: string; expiresIn: number }>('/feishu/bind-code').then((r) => r.data),
 }
