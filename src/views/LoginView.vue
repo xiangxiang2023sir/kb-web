@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { authApi } from '@/api/endpoints'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -11,6 +13,35 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
+
+const regVisible = ref(false)
+const regLoading = ref(false)
+const regForm = ref({ name: '', password: '', title: '', department: '', note: '' })
+
+async function doRegister() {
+  if (!regForm.value.name.trim() || regForm.value.password.length < 6 || !regForm.value.title.trim()) {
+    ElMessage.warning('请填名字、岗位，密码至少 6 位')
+    return
+  }
+  regLoading.value = true
+  try {
+    const r = await authApi.register({
+      name: regForm.value.name.trim(),
+      password: regForm.value.password,
+      title: regForm.value.title.trim(),
+      department: regForm.value.department.trim(),
+      note: regForm.value.note.trim(),
+    })
+    ElMessage.success(r.message || '已提交，等管理员批准')
+    regVisible.value = false
+    regForm.value = { name: '', password: '', title: '', department: '', note: '' }
+  } catch (err) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || '提交失败，请重试'
+    ElMessage.error(msg)
+  } finally {
+    regLoading.value = false
+  }
+}
 
 function target() {
   return (route.query.redirect as string) || auth.homePath
@@ -63,6 +94,34 @@ async function doGuest() {
       </el-form>
       <el-divider class="divider">或</el-divider>
       <el-button class="full" :loading="loading" @click="doGuest">游客进入（仅公开问答）</el-button>
+
+      <el-button class="full" text @click="regVisible = true">申请注册账号</el-button>
+
+      <el-dialog v-model="regVisible" title="申请注册（管理员批准后可用）" width="440px">
+
+        <el-form label-width="80px">
+
+          <el-form-item label="名字"><el-input v-model="regForm.name" placeholder="真实姓名，登录用" /></el-form-item>
+
+          <el-form-item label="岗位"><el-input v-model="regForm.title" placeholder="如 电气设计工程师" /></el-form-item>
+
+          <el-form-item label="部门"><el-input v-model="regForm.department" placeholder="如 技术中心" /></el-form-item>
+
+          <el-form-item label="申请说明"><el-input v-model="regForm.note" type="textarea" :rows="2" placeholder="为什么需要访问（可选）" /></el-form-item>
+
+          <el-form-item label="密码"><el-input v-model="regForm.password" type="password" show-password placeholder="至少 6 位" /></el-form-item>
+
+        </el-form>
+
+        <template #footer>
+
+          <el-button @click="regVisible = false">取消</el-button>
+
+          <el-button type="primary" :loading="regLoading" @click="doRegister">提交申请</el-button>
+
+        </template>
+
+      </el-dialog>
       <p v-if="error" class="error">{{ error }}</p>
     </el-card>
   </div>

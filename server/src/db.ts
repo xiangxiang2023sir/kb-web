@@ -75,11 +75,22 @@ export class KbDb {
     this.run(`DELETE FROM auth_sessions WHERE id = ?`, id)
   }
 
-  findUserByName(name: string): (User & { passwordHash: string | null }) | null {
-    const row = this.one(`SELECT id, name, role, field, password_hash FROM users WHERE name = ?`, name)
+  findUserByName(
+    name: string,
+  ): (User & { passwordHash: string | null; status: string; title: string | null; department: string | null }) | null {
+    const row = this.one(
+      `SELECT id, name, role, field, password_hash, status, title, department FROM users WHERE name = ?`,
+      name,
+    )
     const user = userOf(row)
     if (!user || !row) return null
-    return { ...user, passwordHash: row.password_hash == null ? null : String(row.password_hash) }
+    return {
+      ...user,
+      passwordHash: row.password_hash == null ? null : String(row.password_hash),
+      status: row.status == null ? 'approved' : String(row.status),
+      title: row.title == null ? null : String(row.title),
+      department: row.department == null ? null : String(row.department),
+    }
   }
 
   findUserById(id: string): User | null {
@@ -382,6 +393,52 @@ export class KbDb {
 
   unbindIdentity(userId: string, channel: string, externalId: string) {
     this.run(`DELETE FROM agent_identities WHERE user_id = ? AND channel = ? AND external_id = ?`, userId, channel, externalId)
+  }
+
+  // ---- 注册 / 审批 ----
+
+  createPendingUser(row: {
+    name: string
+    passwordHash: string
+    title?: string
+    department?: string
+    applyNote?: string
+  }): string | null {
+    if (this.findUserByName(row.name)) return null
+    const id = newId('u')
+    this.run(
+      `INSERT INTO users (id, name, password_hash, role, field, title, department, status, applied_at, apply_note)
+       VALUES (?, ?, ?, 'guest', NULL, ?, ?, 'pending', ?, ?)`,
+      id,
+      row.name,
+      row.passwordHash,
+      row.title ?? null,
+      row.department ?? null,
+      new Date().toISOString(),
+      row.applyNote ?? null,
+    )
+    return id
+  }
+
+  pendingUsers() {
+    return this.many(
+      `SELECT id, name, title, department, applied_at, apply_note FROM users WHERE status = 'pending' ORDER BY applied_at DESC`,
+    ).map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      title: r.title == null ? null : String(r.title),
+      department: r.department == null ? null : String(r.department),
+      appliedAt: r.applied_at == null ? null : String(r.applied_at),
+      note: r.apply_note == null ? null : String(r.apply_note),
+    }))
+  }
+
+  approveUser(id: string, role: Role, field: Field | null) {
+    this.run(`UPDATE users SET status = 'approved', role = ?, field = ? WHERE id = ?`, role, field, id)
+  }
+
+  rejectUser(id: string) {
+    this.run(`UPDATE users SET status = 'rejected' WHERE id = ?`, id)
   }
 
   confirmedDocs(): { id: string; title: string; slug: string; content: string; sourcePath: string | null }[] {
@@ -720,6 +777,21 @@ export function openDb(path: string): KbDb {
   const db = new DatabaseSync(path)
   db.exec(`PRAGMA journal_mode = WAL`)
   db.exec(SCHEMA)
+
+// 老库兼容：补 users 的注册字段（SQLite 没有 ADD COLUMN IF NOT EXISTS，先查再加）
+const userCols = new Set(
+  (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => String(c.name)),
+)
+for (const [col, ddl] of [
+  ['title', 'ALTER TABLE users ADD COLUMN title TEXT'],
+  ['department', 'ALTER TABLE users ADD COLUMN department TEXT'],
+  ['status', "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'"],
+  ['applied_at', 'ALTER TABLE users ADD COLUMN applied_at TEXT'],
+  ['apply_note', 'ALTER TABLE users ADD COLUMN apply_note TEXT'],
+] as const) {
+  if (!userCols.has(col)) db.exec(ddl)
+}
+
   const store = new KbDb(db)
   const n = store['one'](`SELECT COUNT(*) AS n FROM users`)
   if (Number(n?.n ?? 0) === 0) seed(store)

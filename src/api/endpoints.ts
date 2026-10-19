@@ -35,6 +35,11 @@ export const authApi = {
     http.post<User>('/auth/login', { username, password }).then((r) => r.data),
   /** 游客进入：签发一个只能检索公开知识的会话 */
   guest: () => http.post<User>('/auth/guest').then((r) => r.data),
+  /** 注册申请：提交后是 pending，管理员批准后才能登录 */
+  register: (payload: { name: string; password: string; title: string; department?: string; note?: string }) =>
+    http
+      .post<{ ok: boolean; status: string; message: string }>('/auth/register', payload)
+      .then((r) => r.data),
   logout: () => http.post('/auth/logout'),
   me: () => http.get<User>('/auth/me').then((r) => r.data),
 }
@@ -130,6 +135,16 @@ export const adminApi = {
   ) => http.post(`/admin/questions/${id}/resolve`, payload),
 
   users: () => http.get<User[]>('/admin/users').then((r) => r.data),
+  /** 注册申请待批准 */
+  pendingUsers: () =>
+    http
+      .get<
+        { id: string; name: string; title: string | null; department: string | null; appliedAt: string | null; note: string | null }[]
+      >('/admin/users/pending')
+      .then((r) => r.data),
+  approveUser: (id: string, role: Role, field: Field | null) =>
+    http.post(`/admin/users/${id}/approve`, { role, field }).then((r) => r.data),
+  rejectUser: (id: string) => http.post(`/admin/users/${id}/reject`).then((r) => r.data),
   createUser: (payload: { name: string; password: string; role: Role; field: Field | null }) =>
     http.post('/admin/users', payload),
   updateUser: (id: string, payload: { role?: Role; field?: Field | null }) =>

@@ -179,6 +179,23 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   }
 
   app.post(
+    '/api/auth/register',
+    asyncRoute(async (req, res) => {
+      const name = String(req.body?.name ?? '').trim()
+      const password = String(req.body?.password ?? '')
+      const title = String(req.body?.title ?? '').trim().slice(0, 40)
+      const department = String(req.body?.department ?? '').trim().slice(0, 40)
+      const note = String(req.body?.note ?? '').trim().slice(0, 200)
+      if (name.length < 2 || name.length > 32) throw new HttpError(400, '名字 2~32 个字符')
+      if (password.length < 6) throw new HttpError(400, '密码至少 6 位')
+      if (!title) throw new HttpError(400, '请填岗位')
+      const id = db.createPendingUser({ name, passwordHash: hashPassword(password), title, department, applyNote: note })
+      if (!id) throw new HttpError(409, '这个用户名已被占用')
+      res.json({ ok: true, status: 'pending', message: '已提交，等管理员批准后即可登录' })
+    }),
+  )
+
+  app.post(
     '/api/auth/login',
     asyncRoute(async (req, res) => {
       const name = String(req.body?.username ?? '')
@@ -187,6 +204,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!found?.passwordHash || !verifyPassword(password, found.passwordHash)) {
         throw new HttpError(401, '用户名或密码错误')
       }
+      if (found.status === 'pending') throw new HttpError(403, '账号还在审核中，等管理员批准后再登录')
+      if (found.status === 'rejected') throw new HttpError(403, '这个注册申请已被驳回，请联系管理员')
       const sid = db.createAuthSession(found.id, config.auth.ttlDays)
       setCookie(res, config.auth.cookieName, sid, config.auth.ttlDays * 86400)
       const { passwordHash: _pw, ...user } = found
@@ -613,6 +632,30 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   )
 
   // 管理员指派问题时也要名单；增改用户仍仅主人
+  // ---- 注册审批 ----
+  app.get('/api/admin/users/pending', requireAdmin, (_req, res) => {
+    res.json(db.pendingUsers())
+  })
+
+  app.post(
+    '/api/admin/users/:id/approve',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const role = req.body?.role
+      if (!isRole(role)) throw new HttpError(400, '角色不正确')
+      const fieldRaw = req.body?.field
+      const field = fieldRaw == null || fieldRaw === '' ? null : fieldRaw
+      if (field !== null && !isField(field)) throw new HttpError(400, '领域不正确')
+      db.approveUser(String(req.params.id), role, field)
+      res.json({ ok: true })
+    }),
+  )
+
+  app.post('/api/admin/users/:id/reject', requireAdmin, (req, res) => {
+    db.rejectUser(String(req.params.id))
+    res.json({ ok: true })
+  })
+
   app.get('/api/admin/users', requireAdmin, (_req, res) => {
     res.json(db.listUsers())
   })

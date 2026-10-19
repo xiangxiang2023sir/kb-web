@@ -6,12 +6,52 @@ import type { Field, Role, User } from '@/types'
 import { fieldLabels, roleLabels } from '@/utils/labels'
 
 const list = ref<User[]>([])
+interface PendingUser {
+  id: string
+  name: string
+  title: string | null
+  department: string | null
+  appliedAt: string | null
+  note: string | null
+}
+const pending = ref<PendingUser[]>([])
+const approveForm = reactive<Record<string, { role: Role; field: Field }>>({})
+
+async function loadPending() {
+  const rows = await adminApi.pendingUsers().catch(() => [])
+  pending.value = rows
+  for (const r of rows) {
+    if (!approveForm[r.id]) approveForm[r.id] = { role: 'operator', field: 'electrical' }
+  }
+}
+
+async function approve(row: PendingUser) {
+  const f = approveForm[row.id] ?? { role: 'operator' as Role, field: 'electrical' as Field }
+  try {
+    await adminApi.approveUser(row.id, f.role, f.role === 'operator' ? f.field : null)
+    ElMessage.success(`已批准 ${row.name}`)
+    await Promise.all([loadPending(), load()])
+  } catch {
+    ElMessage.error('批准失败')
+  }
+}
+
+async function reject(row: PendingUser) {
+  try {
+    await adminApi.rejectUser(row.id)
+    ElMessage.success('已驳回')
+    void loadPending()
+  } catch {
+    ElMessage.error('驳回失败')
+  }
+}
 const loading = ref(false)
 
 async function load() {
   loading.value = true
   try {
     list.value = await adminApi.users()
+    void loadPending()
   } finally {
     loading.value = false
   }
@@ -65,6 +105,36 @@ async function save() {
 
 <template>
   <div class="page-card">
+    <div v-if="pending.length" style="margin-bottom: 18px">
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px">注册申请（待批准 {{ pending.length }}）</div>
+      <el-table :data="pending" size="small">
+        <el-table-column prop="name" label="名字" width="120" />
+        <el-table-column prop="title" label="岗位" width="150" />
+        <el-table-column prop="department" label="部门" width="120" />
+        <el-table-column prop="note" label="说明" show-overflow-tooltip />
+        <el-table-column label="批准为" width="230">
+          <template #default="{ row }">
+            <el-select v-model="approveForm[row.id].role" size="small" style="width: 92px">
+              <el-option v-for="(label, v) in roleLabels" :key="v" :label="label" :value="v" />
+            </el-select>
+            <el-select
+              v-if="approveForm[row.id].role === 'operator'"
+              v-model="approveForm[row.id].field"
+              size="small"
+              style="width: 100px; margin-left: 6px"
+            >
+              <el-option v-for="(label, v) in fieldLabels" :key="v" :label="label" :value="v" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" @click="approve(row)">批准</el-button>
+            <el-button size="small" text type="danger" @click="reject(row)">驳回</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
     <div class="filter-bar">
       <el-button type="primary" @click="openCreate">新增用户</el-button>
     </div>
