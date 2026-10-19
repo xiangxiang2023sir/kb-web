@@ -63,8 +63,16 @@ export const chatApi = {
     http
       .post<{ ok: boolean; id?: string; duplicate?: boolean }>('/chat/save-to-kb', payload)
       .then((r) => r.data),
-  /** 生成一次性绑定码，在飞书对机器人发送「绑定 ABC123」 */
-  bindFeishuCode: () => http.post<{ code: string; expiresIn: number }>('/feishu/bind-code').then((r) => r.data),
+  /** 生成一次性绑定码：发给飞书/Teams/豆包等外部 agent，让它调 /api/agent/bind 完成绑定 */
+  bindCode: () => http.post<{ code: string; expiresIn: number }>('/bind-code').then((r) => r.data),
+  /** 我已经绑定的外部身份 */
+  identities: () =>
+    http
+      .get<{ channel: string; externalId: string; boundAt: string }[]>('/bind-code/identities')
+      .then((r) => r.data),
+  /** 解绑某个外部身份 */
+  unbind: (channel: string, externalId: string) =>
+    http.post('/bind-code/unbind', { channel, externalId }).then((r) => r.data),
 }
 
 // ---------- 问题队列（用户侧） ----------

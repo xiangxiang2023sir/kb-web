@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import Busboy from 'busboy'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { assertCanConfirm, parseSlug } from './access.js'
+import { assertCanConfirm, canSee, parseSlug } from './access.js'
 import { cancelAll, cancelAsk, contextOf, handleAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
@@ -114,6 +114,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   loadEnvFile()
   const config = loadConfig()
   const agentTokens: AgentToken[] = parseAgentTokens(process.env.AGENT_TOKENS)
+  /** 外部 agent 检索限流：每分钟 60 次/agent */
+  const rateBuckets = new Map<string, { minute: number; count: number }>()
   const dataDir = opts?.dataDir ?? join(serverRoot, 'data')
   mkdirSync(dataDir, { recursive: true })
   const db = openDb(join(dataDir, 'kb.sqlite'))
@@ -235,6 +237,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     void handleFeishuEvent(db, config, payload.event, replyFeishu).catch((err) => console.error('[feishu]', err))
   })
 
+  // 飞书通道自己的绑定码（与 feishu_bindings 配套；外部 agent 走 /api/bind-code）
   app.post('/api/feishu/bind-code', requireUser, (_req, res) => {
     res.json(issueBindCode(db, userOf(res)!.id))
   })
@@ -780,6 +783,83 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         updatedAt: new Date().toISOString(),
       })
       res.json({ ok: true, id, title: fullTitle, field, sensitivity, status: 'pending' })
+    }),
+  )
+
+  // ---- 通用绑定码：生成 / 查已绑 / 解绑（替换原来只能绑飞书的那套） ----
+  app.post('/api/bind-code', requireUser, (_req, res) => {
+    res.json(db.issueBindCode(userOf(res)!.id))
+  })
+
+  app.get('/api/bind-code/identities', requireUser, (_req, res) => {
+    res.json(db.identitiesOf(userOf(res)!.id))
+  })
+
+  app.post('/api/bind-code/unbind', requireUser, (req, res) => {
+    db.unbindIdentity(userOf(res)!.id, String(req.body?.channel ?? ''), String(req.body?.externalId ?? ''))
+    res.json({ ok: true })
+  })
+
+  // ---- 外部 agent：用绑定码把我的身份绑到网页账号 ----
+  app.post(
+    '/api/agent/bind',
+    asyncRoute(async (req, res) => {
+      const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
+      if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
+      const channel = String(req.body?.channel ?? agent).trim().slice(0, 24) || agent
+      const externalId = String(req.body?.external_id ?? '').trim()
+      if (!externalId) throw new HttpError(400, 'external_id 必填（飞书 open_id / Teams UPN / 豆包用户标识）')
+      const userId = db.consumeBindCode(String(req.body?.code ?? ''))
+      if (!userId) throw new HttpError(400, '绑定码无效或已过期（请重新生成）')
+      db.bindIdentity(channel, externalId, userId)
+      const user = db.findUserById(userId)
+      res.json({ ok: true, channel, external_id: externalId, user: user?.name ?? null })
+    }),
+  )
+
+  // ---- 外部 agent：只读检索（服务端按身份过滤权限；只给片段+出处，不给答案） ----
+  app.post(
+    '/api/agent/search',
+    asyncRoute(async (req, res) => {
+      const agent = agentNameOf(agentTokens, bearerOf(req.headers.authorization))
+      if (!agent) throw new HttpError(401, 'token 无效或未配置 AGENT_TOKENS')
+
+      const minute = Math.floor(Date.now() / 60000)
+      const bucket = rateBuckets.get(agent) ?? { minute, count: 0 }
+      if (bucket.minute !== minute) {
+        bucket.minute = minute
+        bucket.count = 0
+      }
+      bucket.count += 1
+      rateBuckets.set(agent, bucket)
+      if (bucket.count > 60) throw new HttpError(429, '请求过于频繁（每分钟 60 次）')
+
+      const query = String(req.body?.query ?? '').trim()
+      const channel = String(req.body?.channel ?? agent).trim()
+      const externalId = String(req.body?.external_id ?? '').trim()
+      if (!query) throw new HttpError(400, 'query 必填')
+      if (!externalId) throw new HttpError(400, 'external_id 必填（先调 /api/agent/bind 绑定）')
+
+      const user = db.userOfIdentity(channel, externalId)
+      if (!user) throw new HttpError(403, '这个身份还没绑定，请先在网页生成绑定码完成绑定')
+
+      const limit = Math.min(Math.max(Number(req.body?.limit ?? 5), 1), 5)
+      const rows = await searchGBrain(config, query, Math.max(limit * 3, 10), 0).catch(() => [])
+      const hits: Record<string, unknown>[] = []
+      for (const row of rows) {
+        const parsed = parseSlug(row.slug)
+        if (!parsed || !canSee(user, parsed.field, parsed.sensitivity)) continue
+        hits.push({
+          slug: row.slug,
+          title: String((row as { title?: string }).title ?? row.slug),
+          marker: `[${hits.length + 1}]`,
+          field: parsed.field,
+          sensitivity: parsed.sensitivity,
+          snippet: String((row as { chunkText?: string }).chunkText ?? '').slice(0, 800),
+        })
+        if (hits.length >= limit) break
+      }
+      res.json({ ok: true, user: user.name, hits, noEvidence: hits.length ? null : config.noEvidence.text })
     }),
   )
 

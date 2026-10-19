@@ -112,3 +112,32 @@ kb-web 按规矩只绑 `127.0.0.1:3000`，容器经 docker0 网关进不来。�
   ```
 - 容器内访问：`http://172.17.0.1:3000`（实测 `docker exec` 里 curl 通）
 - 安全性：只监听 docker0 网桥地址，**局域网和公网都到不了**；kb-web 的绑定没变（仍是 127.0.0.1）
+
+## 外部 agent 接入（飞书智能体 / Teams Copilot / 豆包 / 元宝）
+
+**分工**：外部 agent 负责思考和对话，我们只提供「带权限的检索」——不给答案，给片段 + 出处。
+
+**① 绑定（一次性）**
+```bash
+# 网页登录 → 「绑定外部 agent」→ 生成 6 位码
+curl -X POST http://127.0.0.1:3000/api/agent/bind \
+  -H 'Authorization: Bearer <agent token>' -H 'Content-Type: application/json' \
+  -d '{"code":"AB12CD","channel":"teams","external_id":"norman@yfpo.com"}'
+# channel: 飞书/Teams/豆包/…；external_id: 飞书 open_id、Teams UPN、其它平台的用户标识
+# 码一次性、1 小时过期；绑定后这个身份对应哪个网页账号，权限就按那个账号算
+```
+
+**② 检索**
+```bash
+curl -X POST http://127.0.0.1:3000/api/agent/search \
+  -H 'Authorization: Bearer <agent token>' -H 'Content-Type: application/json' \
+  -d '{"query":"行走电机 maxRPM","channel":"teams","external_id":"norman@yfpo.com","limit":5}'
+# → {ok, user, hits:[{slug,title,marker,field,sensitivity,snippet}], noEvidence}
+# 只有片段与出处，没有答案；服务端按身份过滤领域/密级；每个 token 每分钟 60 次
+```
+
+**安全口径**
+- 两个 token 体系：`AGENT_TOKENS`（写入 + 绑定 + 检索）、每来源一个，泄露改一行重启即吊销
+- 未绑定的身份一律 403，不会退化成"匿名可查"
+- 内容出网分级：对外部云平台只放 public/internal，机密/绝密不要挂外部 agent
+- 飞书通道目前仍用它自己的绑定码（`/api/feishu/bind-code`），等接通飞书应用后再并入通用

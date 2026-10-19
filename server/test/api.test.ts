@@ -244,6 +244,47 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     })
     assert.equal((await agentAgain.json()).duplicate, true)
 
+    // 通用绑定 + 外部 agent 检索（带权限过滤）
+    const bc = await fetch(`${base}/api/bind-code`, { method: 'POST', headers: { cookie } })
+    assert.equal(bc.status, 200)
+    const bindCode = ((await bc.json()) as { code: string }).code
+    assert.ok(bindCode && bindCode.length >= 4)
+
+    // 未绑定身份先检索 → 403
+    const unbound = await fetch(`${base}/api/agent/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ query: '变频器', channel: 'teams', external_id: 'nobody@example.com' }),
+    })
+    assert.equal(unbound.status, 403)
+
+    // 用码绑定 Teams 身份
+    const bindRes = await fetch(`${base}/api/agent/bind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ code: bindCode, channel: 'teams', external_id: 'norman@example.com' }),
+    })
+    assert.equal(bindRes.status, 200)
+
+    // 绑定后检索：只回命中/无依据文案，不生成答案
+    const searchRes = await fetch(`${base}/api/agent/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ query: '变频器', channel: 'teams', external_id: 'norman@example.com' }),
+    })
+    assert.equal(searchRes.status, 200)
+    const searchBody = (await searchRes.json()) as { hits: unknown[]; noEvidence: string | null }
+    assert.ok(Array.isArray(searchBody.hits))
+    assert.ok(!('answer' in (searchBody as Record<string, unknown>)), '不该返回生成答案')
+
+    // 绑定码一次性：再用一次应失败
+    const reuse = await fetch(`${base}/api/agent/bind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token-123' },
+      body: JSON.stringify({ code: bindCode, channel: 'teams', external_id: 'other@example.com' }),
+    })
+    assert.equal(reuse.status, 400)
+
     const told = await ask(base, cookie, '我改成了 0.5 米每秒，记录一下')
     assert.ok(told.some((e) => e.type === 'status' && e.phase === 'acknowledged'), '告知应走确认分支')
     assert.ok(!told.some((e) => e.type === 'citation'), '告知不应检索出引用')

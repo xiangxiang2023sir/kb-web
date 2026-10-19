@@ -46,15 +46,40 @@ onUnmounted(() => {
   if (bindTimer) clearInterval(bindTimer)
 })
 
+const identities = ref<{ channel: string; externalId: string; boundAt: string }[]>([])
+const bindLoadingIds = ref(false)
+
+async function loadIdentities() {
+  bindLoadingIds.value = true
+  try {
+    identities.value = await chatApi.identities()
+  } catch {
+    /* 忽略 */
+  } finally {
+    bindLoadingIds.value = false
+  }
+}
+
+async function unbind(channel: string, externalId: string) {
+  try {
+    await chatApi.unbind(channel, externalId)
+    ElMessage.success('已解绑')
+    void loadIdentities()
+  } catch {
+    ElMessage.error('解绑失败')
+  }
+}
+
 function openBind() {
   bindVisible.value = true
+  void loadIdentities()
   if (!bindCode.value || bindLeft.value <= 0) void issueBind()
 }
 
 async function issueBind() {
   bindLoading.value = true
   try {
-    const r = await chatApi.bindFeishuCode()
+    const r = await chatApi.bindCode()
     bindCode.value = r.code
     bindLeft.value = r.expiresIn
     if (bindTimer) clearInterval(bindTimer)
@@ -104,7 +129,7 @@ async function copyBind() {
       <div class="sidebar-footer">
         <div class="user-chip">{{ auth.user?.name }} · {{ auth.user ? roleLabels[auth.user.role] : '' }}</div>
         <el-button v-if="auth.user && auth.user.role !== 'guest'" text :icon="Connection" @click="openBind">
-          绑定飞书
+          绑定外部 agent
         </el-button>
         <el-button v-if="auth.isAdmin" text :icon="Setting" @click="router.push('/admin')">
           进入管理端
@@ -116,14 +141,33 @@ async function copyBind() {
       <router-view />
     </div>
 
-    <el-dialog v-model="bindVisible" title="绑定飞书" width="420px">
-      <p class="bind-hint">在飞书里找到知识库机器人，把下面整句发给它。验证码 5 分钟内有效。</p>
-      <div v-if="bindCode" class="bind-code">{{ bindPhrase }}</div>
-      <p v-if="bindLeft > 0" class="bind-ttl">剩余 {{ bindLeft }} 秒</p>
+    <el-dialog v-model="bindVisible" title="绑定外部 agent（飞书 / Teams / 豆包…）" width="520px">
+      <p class="bind-hint">
+        把下面的码发给你的 agent（飞书智能体、Teams 的 Copilot、豆包/扣子…），让它调一次
+        <code>POST /api/agent/bind</code>（带它自己的 token，body 里 <code>code</code> 填这个码、
+        <code>external_id</code> 填你的身份）。绑好后它就能替你按权限检索知识库。
+      </p>
+      <div v-if="bindCode" class="bind-code">{{ bindCode }}</div>
+      <p v-if="bindLeft > 0" class="bind-ttl">剩余 {{ bindLeft }} 秒（一次性，用过即作废）</p>
       <p v-else-if="bindCode" class="bind-ttl">已过期，请重新生成</p>
+
+      <div v-loading="bindLoadingIds" style="margin-top: 16px">
+        <div style="font-size: 13px; color: var(--kb-text-secondary); margin-bottom: 6px">已绑定</div>
+        <el-table v-if="identities.length" :data="identities" size="small">
+          <el-table-column prop="channel" label="渠道" width="110" />
+          <el-table-column prop="externalId" label="身份" show-overflow-tooltip />
+          <el-table-column label="" width="80">
+            <template #default="{ row }">
+              <el-button size="small" text type="danger" @click="unbind(row.channel, row.externalId)">解绑</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-else style="font-size: 13px; color: var(--kb-text-secondary)">还没绑定任何 agent</div>
+      </div>
+
       <template #footer>
         <el-button :loading="bindLoading" @click="issueBind">重新生成</el-button>
-        <el-button type="primary" :disabled="!bindPhrase || bindLeft <= 0" @click="copyBind">复制</el-button>
+        <el-button type="primary" :disabled="!bindCode || bindLeft <= 0" @click="copyBind">复制绑定码</el-button>
       </template>
     </el-dialog>
   </div>

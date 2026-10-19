@@ -323,6 +323,67 @@ export class KbDb {
     return new Set(this.many(`SELECT slug FROM docs WHERE status = 'confirmed' AND slug IS NOT NULL`).map((r) => String(r.slug)))
   }
 
+  // ---- 通用「外部 agent 身份」绑定（飞书/Teams/豆包…都走这套） ----
+
+  /** 生成一次性绑定码（替换原来只能绑飞书的码） */
+  issueBindCode(userId: string): { code: string; expiresIn: number } {
+    const code = Math.random().toString(36).slice(2, 8).toUpperCase()
+    const ttl = 3600
+    const expires = new Date(Date.now() + ttl * 1000).toISOString()
+    this.run(`DELETE FROM bind_codes WHERE user_id = ?`, userId)
+    this.run(`INSERT INTO bind_codes (code, user_id, expires_at) VALUES (?, ?, ?)`, code, userId, expires)
+    return { code, expiresIn: ttl }
+  }
+
+  /** 用码换 userId（一次性，过期作废） */
+  consumeBindCode(code: string): string | null {
+    const key = String(code || '').trim().toUpperCase()
+    if (!key) return null
+    const row = this.one(`SELECT user_id, expires_at FROM bind_codes WHERE code = ?`, key)
+    this.run(`DELETE FROM bind_codes WHERE code = ?`, key)
+    if (!row) return null
+    if (String(row.expires_at) < new Date().toISOString()) return null
+    return String(row.user_id)
+  }
+
+  bindIdentity(channel: string, externalId: string, userId: string) {
+    this.run(
+      `DELETE FROM agent_identities WHERE (channel = ? AND external_id = ?) OR user_id = ?`,
+      channel,
+      externalId,
+      userId,
+    )
+    this.run(
+      `INSERT INTO agent_identities (channel, external_id, user_id, bound_at) VALUES (?, ?, ?, ?)`,
+      channel,
+      externalId,
+      userId,
+      new Date().toISOString(),
+    )
+  }
+
+  userOfIdentity(channel: string, externalId: string): User | null {
+    const row = this.one(
+      `SELECT u.id, u.name, u.role, u.field FROM agent_identities i JOIN users u ON u.id = i.user_id
+       WHERE i.channel = ? AND i.external_id = ?`,
+      channel,
+      externalId,
+    )
+    if (!row) return null
+    return { id: String(row.id), name: String(row.name), role: row.role as Role, field: (row.field ?? null) as Field | null }
+  }
+
+  identitiesOf(userId: string) {
+    return this.many(
+      `SELECT channel, external_id, bound_at FROM agent_identities WHERE user_id = ? ORDER BY bound_at DESC`,
+      userId,
+    ).map((r) => ({ channel: String(r.channel), externalId: String(r.external_id), boundAt: String(r.bound_at) }))
+  }
+
+  unbindIdentity(userId: string, channel: string, externalId: string) {
+    this.run(`DELETE FROM agent_identities WHERE user_id = ? AND channel = ? AND external_id = ?`, userId, channel, externalId)
+  }
+
   confirmedDocs(): { id: string; title: string; slug: string; content: string; sourcePath: string | null }[] {
     return this.many(
       `SELECT id, title, slug, content, source_path FROM docs WHERE status = 'confirmed' AND slug IS NOT NULL`,
@@ -624,6 +685,18 @@ CREATE TABLE IF NOT EXISTS health_issues (
   doc_title TEXT NOT NULL,
   detail TEXT NOT NULL,
   ran_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bind_codes (
+  code TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_identities (
+  channel TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  bound_at TEXT NOT NULL,
+  PRIMARY KEY (channel, external_id)
 );
 CREATE TABLE IF NOT EXISTS feishu_bindings (
   open_id TEXT PRIMARY KEY,
