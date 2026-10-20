@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 import { wsClient } from '@/api/ws'
 import { chatApi, questionApi } from '@/api/endpoints'
-import type { ChatAttachment, Citation, ConfidenceLevel, WsServerMessage } from '@/types'
+import type { ChatAttachment, Citation, ConfidenceLevel, Session, WsServerMessage } from '@/types'
 
 export type MessagePhase = 'retrieving' | 'generating' | 'done' | 'no_evidence' | 'acknowledged' | 'error'
 
@@ -40,12 +40,16 @@ let closeBound = false
 export const useChatStore = defineStore('chat', {
   state: () => ({
     sessionId: undefined as string | undefined,
+    sessionMeta: null as Session | null,
     messages: [] as ChatMessage[],
     asking: false,
     activeQuestionId: '',
     /** 已上传待发送的照片 */
     pendingAttachments: [] as ChatAttachment[],
   }),
+  getters: {
+    readOnly: (s) => s.sessionMeta?.readOnly === true,
+  },
   actions: {
     /** ChatLayout 挂载时调用一次：WS 断线时把进行中的问题标记为中断 */
     init() {
@@ -69,6 +73,7 @@ export const useChatStore = defineStore('chat', {
         this.finish(this.activeQuestionId)
       }
       this.sessionId = undefined
+      this.sessionMeta = null
       this.messages = []
       this.pendingAttachments = []
     },
@@ -99,7 +104,8 @@ export const useChatStore = defineStore('chat', {
       this.reset()
       this.sessionId = sessionId
       try {
-        const records = await chatApi.messages(sessionId)
+        const [meta, records] = await Promise.all([chatApi.session(sessionId), chatApi.messages(sessionId)])
+        this.sessionMeta = meta
         this.messages = records.map((r) => ({
           id: r.id,
           role: r.role,
@@ -115,9 +121,29 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
+    async deleteSession() {
+      if (!this.sessionId) return
+      await chatApi.deleteSession(this.sessionId)
+      this.reset()
+    },
+
+    async saveSelected(ids: string[]) {
+      if (!this.sessionId || !ids.length) return
+      try {
+        const res = await chatApi.saveSelected({ sessionId: this.sessionId, messageIds: ids })
+        for (const m of this.messages) {
+          if (ids.includes(m.id)) m.savedToKb = true
+        }
+        ElMessage.success(res.duplicate ? '这些已经在待确认队列里了' : '已提交，管理员确认后入库')
+      } catch {
+        ElMessage.error('提交失败，请重试')
+      }
+    },
+
     ask(question: string) {
       const q = question.trim()
       // 允许只发照片不发文字
+      if (this.readOnly) return
       if ((!q && this.pendingAttachments.length === 0) || this.asking) return
 
       const attachments = [...this.pendingAttachments]
@@ -178,6 +204,14 @@ export const useChatStore = defineStore('chat', {
           break
         case 'session':
           this.sessionId = msg.sessionId
+          this.sessionMeta = {
+            id: msg.sessionId,
+            title: '',
+            updatedAt: new Date().toISOString(),
+            mine: true,
+            readOnly: false,
+            source: 'web',
+          }
           break
         case 'error':
           m.phase = 'error'

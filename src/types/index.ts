@@ -76,11 +76,28 @@ export type WsServerMessage =
 
 // ---------- 会话 ----------
 
+export type ChatSource = 'web' | 'agent'
+
 export interface Session {
   id: string
   title: string
   updatedAt: string
   preview?: string
+  userId?: string
+  userName?: string
+  source?: ChatSource
+  mine?: boolean
+  readOnly?: boolean
+}
+
+export interface ChatArchive {
+  userId: string
+  userName: string
+  weekKey: string
+  title: string
+  bytes: number
+  createdAt: string
+  mine?: boolean
 }
 
 /** 历史会话里的消息记录（GET /chat/sessions/:id/messages 返回） */

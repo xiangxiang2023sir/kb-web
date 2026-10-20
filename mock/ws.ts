@@ -270,6 +270,9 @@ function persist(msg: AskMsg, ans: CannedAnswer) {
       title: msg.question.slice(0, 20) || '[照片咨询]',
       updatedAt: time,
       preview: ans.text.slice(0, 50),
+      userId: 'u1',
+      userName: 'owner',
+      source: 'web',
       messages: [userMsg, assistantMsg],
     })
   }

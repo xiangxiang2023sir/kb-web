@@ -22,6 +22,7 @@ export interface AskRelay {
   error: string | null
   phase: string
   citations: { marker: string; title: string; slug: string }[]
+  sessionId: string
 }
 
 /** 把流式问答收成一段，给外部 agent 原样转发。 */
@@ -29,12 +30,14 @@ export function collectAskResult(): { emit: AskEmit; result: () => AskRelay } {
   let text = ''
   let error = ''
   let phase = ''
+  let sessionId = ''
   const citations: AskRelay['citations'] = []
   return {
     emit(event) {
       if (event.type === 'delta') text += String(event.text ?? '')
       if (event.type === 'error') error = String(event.message ?? '')
       if (event.type === 'status') phase = String(event.phase ?? '')
+      if (event.type === 'session') sessionId = String(event.sessionId ?? '')
       if (event.type === 'citation') {
         const c = event.citation as { marker?: string; title?: string; id?: string } | undefined
         if (c?.title || c?.id) {
@@ -50,7 +53,7 @@ export function collectAskResult(): { emit: AskEmit; result: () => AskRelay } {
       const body = (error || text).trim()
       const lines = citations.map((c) => `${c.marker} ${c.title}`.trim())
       const answer = lines.length ? `${body}\n\n出处：\n${lines.join('\n')}` : body
-      return { answer, error: error || null, phase: phase || (error ? 'error' : 'done'), citations }
+      return { answer, error: error || null, phase: phase || (error ? 'error' : 'done'), citations, sessionId }
     },
   }
 }
@@ -100,7 +103,7 @@ export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: App
   }
   socketRuns.set(msg.questionId, run)
   try {
-    await runAsk(user, db, config, msg, (event) => send(ws, event), run)
+    await runAsk(user, db, config, msg, (event) => send(ws, event), run, { source: 'web' })
   } finally {
     socketRuns!.delete(msg.questionId)
   }
@@ -113,11 +116,14 @@ export async function runAsk(
   msg: AskMessage,
   emit: AskEmit,
   run?: Run,
-  opts?: { publicOnly?: boolean },
+  opts?: { publicOnly?: boolean; source?: 'web' | 'agent' },
 ) {
   const questionId = msg.questionId
   const abort = run?.abort ?? new AbortController()
   const cancelled = () => run?.cancelled === true
+  const source = opts?.source === 'agent' ? 'agent' : 'web'
+  const historyLimit = Math.max(1, Math.min(40, Number(config.chat.historyTurns) || 8))
+  const maxTurns = Math.max(1, Number(config.chat.maxTurnsPerSession) || 100)
 
   const question = (msg.question ?? '').trim()
   const attachments = msg.attachments ?? []
@@ -132,6 +138,7 @@ export async function runAsk(
 
   let sessionId = msg.sessionId
   if (sessionId && !db.getChatSession(sessionId, user.id)) sessionId = undefined
+  if (sessionId && db.countMessages(sessionId) >= maxTurns * 2) sessionId = undefined
   if (!sessionId) sessionId = newId('s')
 
   try {
@@ -155,7 +162,7 @@ export async function runAsk(
   const askedAt = new Date().toISOString()
   if (!attachments.length && isSmallTalk(question, config.chat.phrases)) {
     emit({ type: 'status', questionId, phase: 'generating' })
-    const history = db.recentMessages(sessionId, 6).map((m) => ({ role: m.role, content: m.text }))
+    const history = db.recentMessages(sessionId, historyLimit).map((m) => ({ role: m.role, content: m.text }))
     let answer = ''
     if (!process.env.DEEPSEEK_API_KEY) {
       answer = config.chat.fallback
@@ -171,7 +178,7 @@ export async function runAsk(
         abort.signal,
       )
     }
-    persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, emit)
+    persist(db, user, sessionId, question, attachments, answer, [], undefined, askedAt, questionId, emit, source, config)
     emit({ type: 'done', questionId })
     return
   }
@@ -181,7 +188,7 @@ export async function runAsk(
     const text = config.chat.ackText
     emit({ type: 'status', questionId, phase: 'acknowledged' })
     for (const part of chunkText(text)) emit({ type: 'delta', questionId, text: part })
-    persist(db, user, sessionId, question, attachments, text, [], undefined, askedAt, questionId, emit)
+    persist(db, user, sessionId, question, attachments, text, [], undefined, askedAt, questionId, emit, source, config)
     emit({ type: 'done', questionId })
     return
   }
@@ -196,7 +203,7 @@ export async function runAsk(
     emit({ type: 'status', questionId, phase: 'no_evidence' })
     for (const part of chunkText(text)) emit({ type: 'delta', questionId, text: part })
     emit({ type: 'confidence', questionId, ...confidence })
-    persist(db, user, sessionId, question, attachments, text, [], confidence, askedAt, questionId, emit)
+    persist(db, user, sessionId, question, attachments, text, [], confidence, askedAt, questionId, emit, source, config)
     emit({ type: 'done', questionId })
     return
   }
@@ -213,7 +220,7 @@ export async function runAsk(
   }))
   for (const citation of citations) emit({ type: 'citation', questionId, citation })
 
-  const history = db.recentMessages(sessionId, 6).map((m) => ({ role: m.role, content: m.text }))
+  const history = db.recentMessages(sessionId, historyLimit).map((m) => ({ role: m.role, content: m.text }))
   const evidence = hits.map((hit, i) => `[${i + 1}] ${hit.title}\n${evidenceOf(hit, config.search.pageChars)}`).join('\n\n')
   const userContent = `${photoNote ? `照片中可见：\n${photoNote}\n\n` : ''}资料：\n${evidence}\n\n问题：\n${question || '请结合照片和资料说明'}`
   let answer = ''
@@ -229,7 +236,7 @@ export async function runAsk(
     )
   } catch (err) {
     if (cancelled() || (err as Error).name === 'AbortError') {
-      persist(db, user, sessionId, question, attachments, answer, citations, undefined, askedAt, questionId, emit)
+      persist(db, user, sessionId, question, attachments, answer, citations, undefined, askedAt, questionId, emit, source, config)
       emit({ type: 'done', questionId })
       return
     }
@@ -238,13 +245,13 @@ export async function runAsk(
     return
   }
   if (cancelled()) {
-    persist(db, user, sessionId, question, attachments, answer, citations, undefined, askedAt, questionId, emit)
+    persist(db, user, sessionId, question, attachments, answer, citations, undefined, askedAt, questionId, emit, source, config)
     emit({ type: 'done', questionId })
     return
   }
   const confidence = confidenceOf(hits[0].score, config)
   emit({ type: 'confidence', questionId, ...confidence })
-  persist(db, user, sessionId, question, attachments, answer, citations, confidence, askedAt, questionId, emit)
+  persist(db, user, sessionId, question, attachments, answer, citations, confidence, askedAt, questionId, emit, source, config)
   for (const hit of hits) {
     const doc = db.findDocBySlug(hit.slug)
     if (doc) db.addDocRef(doc.id, sessionId, question || '[照片咨询]', askedAt)
@@ -355,6 +362,8 @@ function persist(
   createdAt: string,
   questionId: string,
   emit: AskEmit,
+  source: 'web' | 'agent',
+  config: AppConfig,
 ) {
   if (!db.getChatSession(sessionId, user.id)) {
     db.insertChatSession({
@@ -363,6 +372,7 @@ function persist(
       title: question.slice(0, 20) || '[照片咨询]',
       preview: '',
       updatedAt: createdAt,
+      source,
     })
     emit({ type: 'session', questionId, sessionId })
   }
@@ -384,12 +394,39 @@ function persist(
     createdAt,
   })
   db.touchChatSession(sessionId, answer.slice(0, 50), createdAt)
+  db.pruneExtraSessions(user.id, Math.max(1, Number(config.chat.maxSessions) || 50))
+}
+
+/** 外部 agent：带上上次的 sessionId；没有则接最近一场（空闲超时或 new:true 新开）。 */
+export function resolveAgentSession(
+  db: KbDb,
+  user: User,
+  config: AppConfig,
+  body: { sessionId?: unknown; session_id?: unknown; new?: unknown },
+): string {
+  const forceNew = body.new === true
+  if (forceNew) return newId('s')
+  const maxTurns = Math.max(1, Number(config.chat.maxTurnsPerSession) || 100)
+  const requested = String(body.sessionId ?? body.session_id ?? '').trim()
+  if (requested && db.getChatSession(requested, user.id)) {
+    if (db.countMessages(requested) >= maxTurns * 2) return newId('s')
+    return requested
+  }
+  const last = db.latestAgentSession(user.id)
+  if (last) {
+    const idleMs = Math.max(1, Number(config.chat.agentIdleHours) || 8) * 3600_000
+    if (Date.now() - Date.parse(last.updatedAt) <= idleMs) {
+      if (db.countMessages(last.id) >= maxTurns * 2) return newId('s')
+      return last.id
+    }
+  }
+  return newId('s')
 }
 
 export function contextOf(db: KbDb, sessionId: string | undefined, userId: string): string | undefined {
   if (!sessionId || !db.getChatSession(sessionId, userId)) return undefined
   return db
-    .recentMessages(sessionId, 6)
+    .recentMessages(sessionId, 8)
     .map((m) => `${m.role === 'user' ? '问' : '答'}：${m.text}`)
     .join('\n')
     .slice(0, 2000)

@@ -12,6 +12,7 @@
 import { http } from './http'
 import type {
   AdminOverview,
+  ChatArchive,
   ChatAttachment,
   DocDetail,
   DocItem,
@@ -47,8 +48,11 @@ export const authApi = {
 // ---------- 会话 ----------
 export const chatApi = {
   sessions: () => http.get<Session[]>('/chat/sessions').then((r) => r.data),
+  session: (sessionId: string) => http.get<Session>(`/chat/sessions/${sessionId}`).then((r) => r.data),
   messages: (sessionId: string) =>
     http.get<SessionMessage[]>(`/chat/sessions/${sessionId}/messages`).then((r) => r.data),
+  deleteSession: (sessionId: string) =>
+    http.delete(`/chat/sessions/${sessionId}`).then((r) => r.data),
   /**
    * 上传聊天照片：先存到 Node 后端，返回附件引用；
    * 提问时随 /ws ask 消息带上，后端取照片交给 Hermes 做视觉分析
@@ -68,6 +72,21 @@ export const chatApi = {
     http
       .post<{ ok: boolean; id?: string; duplicate?: boolean }>('/chat/save-to-kb', payload)
       .then((r) => r.data),
+  saveSelected: (payload: { sessionId: string; messageIds: string[] }) =>
+    http
+      .post<{ ok: boolean; id?: string; duplicate?: boolean }>('/chat/save-selected', payload)
+      .then((r) => r.data),
+  archives: () => http.get<ChatArchive[]>('/chat/archives').then((r) => r.data),
+  archive: (userId: string, weekKey: string) =>
+    http.get<{ markdown: string; title: string }>(`/chat/archives/${userId}/${weekKey}`).then((r) => r.data),
+  archiveToPending: (userId: string, weekKey: string) =>
+    http
+      .post<{ ok: boolean; id?: string; duplicate?: boolean; title?: string }>(
+        `/chat/archives/${userId}/${weekKey}/to-pending`,
+      )
+      .then((r) => r.data),
+  runArchives: () =>
+    http.post<{ ok: boolean; weekKey: string; files: number }>('/chat/archives/run').then((r) => r.data),
   /** 当前这把外部钥匙是何时生成的（没有则 createdAt 为空） */
   skillMeta: () => http.get<{ createdAt: string | null }>('/agent-skill').then((r) => r.data),
   /** 下载 Skill：生成新钥匙，旧文件立刻作废 */

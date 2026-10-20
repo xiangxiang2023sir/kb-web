@@ -1,4 +1,5 @@
 import type {
+  ChatSource,
   DocStatus,
   Field,
   HealthIssueType,
@@ -8,6 +9,11 @@ import type {
 } from '@/types'
 
 /** 各类枚举的中文标签，全局统一 */
+export const chatSourceLabels: Record<ChatSource, string> = {
+  web: '网页',
+  agent: '外部',
+}
+
 export const roleLabels: Record<Role, string> = {
   owner: '主人',
   admin: '管理员',

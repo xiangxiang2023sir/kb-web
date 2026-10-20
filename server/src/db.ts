@@ -124,31 +124,98 @@ export class KbDb {
     if (patch.passwordHash) this.run(`UPDATE users SET password_hash = ? WHERE id = ?`, patch.passwordHash, id)
   }
 
-  listChatSessions(userId: string) {
-    return this.many(
-      `SELECT id, title, updated_at, preview FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC`,
-      userId,
-    ).map((r) => ({
+  private sessionOf(r: Row) {
+    return {
       id: String(r.id),
+      userId: String(r.user_id),
+      userName: String(r.user_name ?? ''),
       title: String(r.title),
       updatedAt: String(r.updated_at),
       preview: r.preview == null ? undefined : String(r.preview),
-    }))
+      source: r.source === 'agent' ? ('agent' as const) : ('web' as const),
+    }
+  }
+
+  listChatSessions(opts?: { userId?: string }) {
+    const sql = `SELECT s.id, s.user_id, s.title, s.preview, s.updated_at, s.source, u.name AS user_name
+       FROM chat_sessions s JOIN users u ON u.id = s.user_id
+       ${opts?.userId ? 'WHERE s.user_id = ?' : ''}
+       ORDER BY s.updated_at DESC`
+    const rows = opts?.userId ? this.many(sql, opts.userId) : this.many(sql)
+    return rows.map((r) => this.sessionOf(r))
   }
 
   getChatSession(id: string, userId: string) {
     return this.one(`SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?`, id, userId)
   }
 
-  insertChatSession(row: { id: string; userId: string; title: string; preview: string; updatedAt: string }) {
+  getChatSessionRow(id: string) {
+    const r = this.one(
+      `SELECT s.id, s.user_id, s.title, s.preview, s.updated_at, s.source, u.name AS user_name
+       FROM chat_sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
+      id,
+    )
+    return r ? this.sessionOf(r) : null
+  }
+
+  insertChatSession(row: {
+    id: string
+    userId: string
+    title: string
+    preview: string
+    updatedAt: string
+    source?: 'web' | 'agent'
+  }) {
     this.run(
-      `INSERT INTO chat_sessions (id, user_id, title, preview, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO chat_sessions (id, user_id, title, preview, updated_at, source) VALUES (?, ?, ?, ?, ?, ?)`,
       row.id,
       row.userId,
       row.title,
       row.preview,
       row.updatedAt,
+      row.source === 'agent' ? 'agent' : 'web',
     )
+  }
+
+  latestAgentSession(userId: string) {
+    const r = this.one(
+      `SELECT id, updated_at FROM chat_sessions WHERE user_id = ? AND source = 'agent' ORDER BY updated_at DESC LIMIT 1`,
+      userId,
+    )
+    if (!r) return null
+    return { id: String(r.id), updatedAt: String(r.updated_at) }
+  }
+
+  countMessages(sessionId: string): number {
+    return Number(this.one(`SELECT COUNT(*) AS n FROM chat_messages WHERE session_id = ?`, sessionId)?.n ?? 0)
+  }
+
+  deleteChatSession(id: string) {
+    this.run(`DELETE FROM chat_messages WHERE session_id = ?`, id)
+    this.run(`DELETE FROM doc_refs WHERE session_id = ?`, id)
+    this.run(`DELETE FROM chat_sessions WHERE id = ?`, id)
+  }
+
+  pruneExtraSessions(userId: string, max: number) {
+    const keep = Math.max(1, max)
+    const ids = this.many(
+      `SELECT id FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC`,
+      userId,
+    ).map((r) => String(r.id))
+    for (const id of ids.slice(keep)) this.deleteChatSession(id)
+  }
+
+  sessionsWithMessagesBetween(startIso: string, endIso: string) {
+    return this.many(
+      `SELECT DISTINCT s.id, s.user_id, s.title, s.preview, s.updated_at, s.source, u.name AS user_name
+       FROM chat_messages m
+       JOIN chat_sessions s ON s.id = m.session_id
+       JOIN users u ON u.id = s.user_id
+       WHERE m.created_at >= ? AND m.created_at < ?
+       ORDER BY s.user_id, s.updated_at`,
+      startIso,
+      endIso,
+    ).map((r) => this.sessionOf(r))
   }
 
   touchChatSession(id: string, preview: string, updatedAt: string) {
@@ -472,6 +539,8 @@ export class KbDb {
 
   /** 删用户：连带清掉会话与外部身份绑定 */
   deleteUser(id: string) {
+    const sessions = this.many(`SELECT id FROM chat_sessions WHERE user_id = ?`, id)
+    for (const r of sessions) this.deleteChatSession(String(r.id))
     this.run(`DELETE FROM auth_sessions WHERE user_id = ?`, id)
     this.run(`DELETE FROM agent_identities WHERE user_id = ?`, id)
     this.run(`DELETE FROM bind_codes WHERE user_id = ?`, id)
@@ -689,7 +758,8 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   user_id TEXT NOT NULL,
   title TEXT NOT NULL,
   preview TEXT,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'web'
 );
 CREATE TABLE IF NOT EXISTS chat_messages (
   id TEXT PRIMARY KEY,
@@ -804,6 +874,11 @@ for (const [col, ddl] of [
 ] as const) {
   if (!userCols.has(col)) db.exec(ddl)
 }
+
+const sessionCols = new Set(
+  (db.prepare('PRAGMA table_info(chat_sessions)').all() as { name: string }[]).map((c) => String(c.name)),
+)
+if (!sessionCols.has('source')) db.exec(`ALTER TABLE chat_sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'web'`)
 
   const store = new KbDb(db)
   const n = store['one'](`SELECT COUNT(*) AS n FROM users`)

@@ -6,7 +6,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
-import { confidenceOf } from '../src/config.js'
+import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
+import { confidenceOf, type AppConfig } from '../src/config.js'
+import { openDb } from '../src/db.js'
 import { decodeUploadName, extractText, isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
@@ -103,6 +105,61 @@ test('置信度分数压到 0–1，大分仍算充分', () => {
   assert.deepEqual(confidenceOf(0.05, { confidence: cfg } as never), { level: 'high', score: 0.05 })
   assert.deepEqual(confidenceOf(0.02, { confidence: cfg } as never), { level: 'medium', score: 0.02 })
   assert.deepEqual(confidenceOf(0.01, { confidence: cfg } as never), { level: 'low', score: 0.01 })
+})
+
+test('ISO 周从周一起算', () => {
+  assert.equal(isoWeekKey(new Date(Date.UTC(2026, 9, 12))), '2026-W42')
+  assert.equal(isoWeekKey(new Date(Date.UTC(2026, 9, 18))), '2026-W42')
+  assert.equal(isoWeekKey(new Date(Date.UTC(2026, 9, 19))), '2026-W43')
+  const range = isoWeekRange('2026-W42')
+  assert.equal(range.start, '2026-10-12T00:00:00.000Z')
+  assert.equal(range.end, '2026-10-19T00:00:00.000Z')
+})
+
+test('周归档写成文件并可送待确认', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-arch-'))
+  const db = openDb(join(dir, 'kb.sqlite'))
+  const cfg = {
+    chat: { archiveMinMessages: 2 },
+    keywords: { electrical: ['变频'], mechanical: [], dispatch: [] },
+    sensitivityKeywords: { top_secret: [], confidential: [], public: [] },
+    defaults: { field: 'electrical', sensitivity: 'internal' },
+  } as unknown as AppConfig
+  try {
+    const wang = db.findUserByName('wang')
+    assert.ok(wang)
+    db.insertChatSession({
+      id: 's-arch',
+      userId: wang.id,
+      title: '变频器记录',
+      preview: '停机',
+      updatedAt: '2026-10-15T10:00:00.000Z',
+      source: 'agent',
+    })
+    db.insertMessage({
+      id: 'm-q',
+      sessionId: 's-arch',
+      role: 'user',
+      text: '变频器过载怎么处理',
+      createdAt: '2026-10-15T10:00:00.000Z',
+    })
+    db.insertMessage({
+      id: 'm-a',
+      sessionId: 's-arch',
+      role: 'assistant',
+      text: '先停机检查绝缘。',
+      createdAt: '2026-10-15T10:00:10.000Z',
+    })
+    const out = writeWeeklyArchives(db, dir, cfg, { weekKey: '2026-W42' })
+    assert.equal(out.files, 1)
+    const pending = archiveToPending(db, dir, cfg, wang.id, '2026-W42', 'owner')
+    assert.equal(pending.duplicate, undefined)
+    const again = archiveToPending(db, dir, cfg, wang.id, '2026-W42', 'owner')
+    assert.equal(again.duplicate, true)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('登录、入库和依据不足', async () => {
@@ -299,6 +356,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const userToken = tokenMatch![1]
     assert.ok(skill.markdown.includes('/api/agent/ask'))
     assert.ok(skill.markdown.includes('原样'))
+    assert.ok(skill.markdown.includes('sessionId'))
     assert.ok(!skill.markdown.includes('"external_id"'))
 
     const unbound = await fetch(`${base}/api/agent/search`, {
@@ -364,6 +422,71 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const wangCookie = wangLogin.headers.getSetCookie()[0].split(';')[0]
     const wangSkill = await fetch(`${base}/api/agent-skill`, { method: 'POST', headers: { cookie: wangCookie } })
     assert.equal(wangSkill.status, 200)
+    const wangSkillBody = (await wangSkill.json()) as { markdown: string }
+    const wangTok = /Bearer (kb_[a-f0-9]+)/.exec(wangSkillBody.markdown)
+    assert.ok(wangTok)
+    const wangToken = wangTok[1]
+
+    const agentFirst = await fetch(`${base}/api/agent/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${wangToken}` },
+      body: JSON.stringify({ query: '空结果' }),
+    })
+    assert.equal(agentFirst.status, 200)
+    const agentFirstBody = (await agentFirst.json()) as { sessionId: string }
+    assert.ok(agentFirstBody.sessionId)
+
+    const agentSecond = await fetch(`${base}/api/agent/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${wangToken}` },
+      body: JSON.stringify({ query: '空结果' }),
+    })
+    assert.equal((await agentSecond.json() as { sessionId: string }).sessionId, agentFirstBody.sessionId)
+
+    const agentFresh = await fetch(`${base}/api/agent/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${wangToken}` },
+      body: JSON.stringify({ query: '空结果', new: true }),
+    })
+    assert.notEqual((await agentFresh.json() as { sessionId: string }).sessionId, agentFirstBody.sessionId)
+
+    const wangHist = (await (await fetch(`${base}/api/chat/sessions`, { headers: { cookie: wangCookie } })).json()) as {
+      id: string
+      mine: boolean
+      source: string
+      userName: string
+    }[]
+    assert.ok(wangHist.every((s) => s.mine === true))
+    assert.ok(wangHist.some((s) => s.source === 'agent'))
+
+    const ownerHist = (await (await fetch(`${base}/api/chat/sessions`, { headers: { cookie } })).json()) as {
+      id: string
+      userName: string
+      source: string
+      readOnly: boolean
+    }[]
+    assert.ok(ownerHist.some((s) => s.userName === 'wang' && s.source === 'agent'))
+
+    const wangSid = wangHist.find((s) => s.source === 'agent')!.id
+    const ownerMeta = await fetch(`${base}/api/chat/sessions/${wangSid}`, { headers: { cookie } })
+    assert.equal(ownerMeta.status, 200)
+    assert.equal((await ownerMeta.json() as { readOnly: boolean }).readOnly, true)
+
+    const wangMsgs = (await (
+      await fetch(`${base}/api/chat/sessions/${wangSid}/messages`, { headers: { cookie } })
+    ).json()) as { id: string; role: string }[]
+    const assistantIds = wangMsgs.filter((m) => m.role === 'assistant').map((m) => m.id)
+    const picked = await fetch(`${base}/api/chat/save-selected`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: wangSid, messageIds: assistantIds.slice(0, 1) }),
+    })
+    assert.equal(picked.status, 200)
+
+    const del = await fetch(`${base}/api/chat/sessions/${wangSid}`, { method: 'DELETE', headers: { cookie } })
+    assert.equal(del.status, 200)
+    const gone = await fetch(`${base}/api/chat/sessions/${wangSid}/messages`, { headers: { cookie: wangCookie } })
+    assert.equal(gone.status, 404)
 
     const told = await ask(base, cookie, '我改成了 0.5 米每秒，记录一下')
     assert.ok(told.some((e) => e.type === 'status' && e.phase === 'acknowledged'), '告知应走确认分支')

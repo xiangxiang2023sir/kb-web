@@ -1,24 +1,66 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Picture, Promotion, VideoPause } from '@element-plus/icons-vue'
 import { useChatStore, type ChatMessage } from '@/stores/chat'
 import CitationCard from '@/components/CitationCard.vue'
 import ConfidenceBadge from '@/components/ConfidenceBadge.vue'
+import { chatSourceLabels } from '@/utils/labels'
 
 // html: false —— 转义原始 HTML，防止注入；需要富 Markdown 渲染时可再扩展
 const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
 const renderMd = (text: string) => md.render(text)
 
 const route = useRoute()
+const router = useRouter()
 const chat = useChatStore()
-const { messages, asking } = storeToRefs(chat)
+const { messages, asking, readOnly, sessionMeta } = storeToRefs(chat)
 
 const draft = ref('')
 const scrollRef = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const selecting = ref(false)
+const selected = ref<Set<string>>(new Set())
+const selectedCount = computed(() => selected.value.size)
+const sourceText = computed(() =>
+  sessionMeta.value?.source ? chatSourceLabels[sessionMeta.value.source] : '',
+)
+
+function toggleSelect(id: string, on: boolean) {
+  const next = new Set(selected.value)
+  if (on) next.add(id)
+  else next.delete(id)
+  selected.value = next
+}
+
+function exitSelect() {
+  selecting.value = false
+  selected.value = new Set()
+}
+
+async function submitSelected() {
+  await chat.saveSelected([...selected.value])
+  exitSelect()
+}
+
+async function removeSession() {
+  if (!chat.sessionId) return
+  try {
+    await ElMessageBox.confirm('删除后无法恢复。确定删掉这场对话？', '删除会话', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await chat.deleteSession()
+    ElMessage.success('已删除')
+    await router.push('/chat/history')
+  } catch {
+    ElMessage.error('删除失败')
+  }
+}
 
 watch(
   () => route.params.id,
@@ -78,6 +120,25 @@ function retry(m: ChatMessage) {
 
 <template>
   <div class="chat-view">
+    <div v-if="chat.sessionId" class="chat-toolbar">
+      <div class="toolbar-meta">
+        <el-tag v-if="sourceText" size="small" effect="plain">{{ sourceText }}</el-tag>
+        <span v-if="readOnly" class="toolbar-note">
+          这是 {{ sessionMeta?.userName || '他人' }} 的会话，只读。可勾选入库或删除。
+        </span>
+        <span v-else-if="sessionMeta?.title" class="toolbar-note">{{ sessionMeta.title }}</span>
+      </div>
+      <div class="toolbar-actions">
+        <el-button v-if="!selecting" size="small" @click="selecting = true">选择入库</el-button>
+        <template v-else>
+          <el-button size="small" @click="exitSelect">取消</el-button>
+          <el-button size="small" type="success" :disabled="!selectedCount" @click="submitSelected">
+            选中 {{ selectedCount }} 条入库
+          </el-button>
+        </template>
+        <el-button size="small" type="danger" plain @click="removeSession">删除会话</el-button>
+      </div>
+    </div>
     <div ref="scrollRef" class="chat-messages">
       <div v-if="!messages.length" class="chat-empty">
         <h2>向知识库提问</h2>
@@ -85,6 +146,12 @@ function retry(m: ChatMessage) {
       </div>
 
       <div v-for="m in messages" :key="m.id" class="msg-row" :class="m.role">
+        <el-checkbox
+          v-if="selecting && m.role === 'assistant' && m.phase === 'done' && m.text"
+          class="msg-check"
+          :model-value="selected.has(m.id)"
+          @change="(v: boolean | string | number) => toggleSelect(m.id, v === true)"
+        />
         <div class="msg-bubble">
           <template v-if="m.role === 'user'">
             <div v-if="m.attachments?.length" class="msg-attachments">
@@ -158,7 +225,7 @@ function retry(m: ChatMessage) {
       </div>
     </div>
 
-    <div class="chat-input-area">
+    <div v-if="!readOnly" class="chat-input-area">
       <div v-if="chat.pendingAttachments.length" class="attach-list">
         <div v-for="a in chat.pendingAttachments" :key="a.id" class="attach-item">
           <el-image :src="a.url" fit="cover" :preview-src-list="[a.url]" preview-teleported />
@@ -198,6 +265,40 @@ function retry(m: ChatMessage) {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.chat-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--kb-border);
+  background: #fff;
+  flex-wrap: wrap;
+}
+
+.toolbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar-note {
+  color: var(--kb-text-secondary);
+  font-size: 13px;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.msg-check {
+  margin-right: 8px;
+  align-self: center;
 }
 
 .chat-messages {

@@ -17,7 +17,7 @@ import {
   type MockDoc,
   type MockUser,
 } from './data'
-import type { ChatAttachment, Field, QuestionItem, Sensitivity, UploadResult, User } from '../src/types/index'
+import type { ChatArchive, ChatAttachment, Field, QuestionItem, Sensitivity, UploadResult, User } from '../src/types/index'
 
 // ---------- 工具 ----------
 
@@ -135,6 +135,25 @@ let seq = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++seq}`
 const now = () => new Date().toISOString()
 let mockSkillAt: string | null = null
+const mockArchives: ChatArchive[] = [
+  {
+    userId: 'u3',
+    userName: 'wang',
+    weekKey: '2026-W42',
+    title: '对话归档 wang 2026-W42',
+    bytes: 1200,
+    createdAt: '2026-10-19T08:00:00.000Z',
+  },
+]
+
+function isStaff(user: User | null) {
+  return user?.role === 'owner' || user?.role === 'admin'
+}
+
+function sessionPublic(s: (typeof sessions)[number], user: User | null) {
+  const { messages: _m, ...rest } = s
+  return { ...rest, mine: rest.userId === user?.id, readOnly: rest.userId !== user?.id }
+}
 
 const routes: Route[] = [
   // ---------- 认证 ----------
@@ -186,21 +205,99 @@ const routes: Route[] = [
   {
     method: 'GET',
     pattern: '/chat/sessions',
-    handler: ({ res }) => {
+    handler: ({ user, res }) => {
+      const rows = isStaff(user) ? sessions : sessions.filter((s) => s.userId === user?.id)
       sendJson(
         res,
         200,
-        sessions.map(({ messages: _m, ...s }) => s),
+        rows.map((s) => sessionPublic(s, user)),
       )
     },
   },
   {
     method: 'GET',
     pattern: '/chat/sessions/:id/messages',
-    handler: ({ params, res }) => {
+    handler: ({ params, user, res }) => {
       const s = sessions.find((x) => x.id === params.id)
-      if (!s) return sendJson(res, 404, { message: '会话不存在' })
+      if (!s || (!isStaff(user) && s.userId !== user?.id)) return sendJson(res, 404, { message: '会话不存在' })
       sendJson(res, 200, s.messages)
+    },
+  },
+  {
+    method: 'GET',
+    pattern: '/chat/sessions/:id',
+    handler: ({ params, user, res }) => {
+      const s = sessions.find((x) => x.id === params.id)
+      if (!s || (!isStaff(user) && s.userId !== user?.id)) return sendJson(res, 404, { message: '会话不存在' })
+      sendJson(res, 200, sessionPublic(s, user))
+    },
+  },
+  {
+    method: 'DELETE',
+    pattern: '/chat/sessions/:id',
+    handler: ({ params, user, res }) => {
+      const i = sessions.findIndex((x) => x.id === params.id)
+      const s = i >= 0 ? sessions[i] : undefined
+      if (!s || (!isStaff(user) && s.userId !== user?.id)) return sendJson(res, 404, { message: '会话不存在' })
+      sessions.splice(i, 1)
+      sendJson(res, 200, { ok: true })
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/chat/save-to-kb',
+    handler: async ({ req, res }) => {
+      const body = await readBody(req)
+      if (!body.question && !body.answer) return sendJson(res, 400, { message: '没有可保存的内容' })
+      sendJson(res, 200, { ok: true, id: nextId('d') })
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/chat/save-selected',
+    handler: async ({ req, user, res }) => {
+      const body = await readBody(req)
+      const s = sessions.find((x) => x.id === body.sessionId)
+      if (!s || (!isStaff(user) && s.userId !== user?.id)) return sendJson(res, 404, { message: '会话不存在' })
+      sendJson(res, 200, { ok: true, id: nextId('d') })
+    },
+  },
+  {
+    method: 'GET',
+    pattern: '/chat/archives',
+    handler: ({ user, res }) => {
+      const rows = isStaff(user) ? mockArchives : mockArchives.filter((a) => a.userId === user?.id)
+      sendJson(
+        res,
+        200,
+        rows.map((a) => ({ ...a, mine: a.userId === user?.id })),
+      )
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/chat/archives/run',
+    role: 'admin',
+    handler: ({ res }) => {
+      sendJson(res, 200, { ok: true, weekKey: '2026-W42', files: mockArchives.length })
+    },
+  },
+  {
+    method: 'GET',
+    pattern: '/chat/archives/:userId/:weekKey',
+    handler: ({ params, user, res }) => {
+      const a = mockArchives.find((x) => x.userId === params.userId && x.weekKey === params.weekKey)
+      if (!a || (!isStaff(user) && a.userId !== user?.id)) return sendJson(res, 404, { message: '归档不存在' })
+      sendJson(res, 200, { markdown: `# ${a.title}\n\n### 问\n\n变频器怎么处理\n\n### 答\n\n按规程停机检查。`, title: a.title })
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/chat/archives/:userId/:weekKey/to-pending',
+    handler: ({ params, user, res }) => {
+      const a = mockArchives.find((x) => x.userId === params.userId && x.weekKey === params.weekKey)
+      if (!a || (!isStaff(user) && a.userId !== user?.id)) return sendJson(res, 404, { message: '归档不存在' })
+      sendJson(res, 200, { ok: true, id: nextId('d'), title: `[对话归档] ${a.userName} ${a.weekKey}` })
     },
   },
 

@@ -34,7 +34,22 @@ export interface AppConfig {
   }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
-  chat: { phrases: string[]; fallback: string; ackText: string; questionWords: string[] }
+  chat: {
+    phrases: string[]
+    fallback: string
+    ackText: string
+    questionWords: string[]
+    /** 送给模型的最近消息条数（问+答都算） */
+    historyTurns: number
+    /** 每人最多保留的会话数，超出删最旧的 */
+    maxSessions: number
+    /** 单场最多多少轮（一轮=一问一答），超出自动新开 */
+    maxTurnsPerSession: number
+    /** 外部 agent 不带 sessionId 时，空闲多久内接到上一场 */
+    agentIdleHours: number
+    /** 周归档：一周里至少这么多条消息才写文件 */
+    archiveMinMessages: number
+  }
   keywords: Record<Field, string[]>
   sensitivityKeywords: { top_secret: string[]; confidential: string[]; public: string[] }
   defaults: { field: Field; sensitivity: Sensitivity }
@@ -133,6 +148,11 @@ export function loadConfig(): AppConfig {
         raw.chat?.questionWords == null
           ? ['怎么', '如何', '为什么', '是什么', '什么', '多少', '在哪', '哪里', '哪个', '能不能', '是否', '有没有', '吗']
           : asStringArray(raw.chat.questionWords),
+      historyTurns: Number(raw.chat?.historyTurns ?? 8),
+      maxSessions: Number(raw.chat?.maxSessions ?? 50),
+      maxTurnsPerSession: Number(raw.chat?.maxTurnsPerSession ?? 100),
+      agentIdleHours: Number(raw.chat?.agentIdleHours ?? 8),
+      archiveMinMessages: Number(raw.chat?.archiveMinMessages ?? 4),
     },
     keywords: {
       electrical: asStringArray(raw.keywords?.electrical),

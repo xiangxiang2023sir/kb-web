@@ -72,9 +72,14 @@
 | HTTP / 上传确认 / 队列 | `server/src/app.ts` |
 | 飞书通道（验签、绑定、回复） | `server/src/feishu.ts`；路由在 `app.ts` 的 `/api/feishu/*` |
 | 生成 / 分类 | `server/src/llm.ts`、`server/prompts/*.md` |
-| 阈值、闲聊说法、检索 | `server/config.yaml` |
+| 阈值、闲聊说法、检索、历史上限 | `server/config.yaml` |
+| 周归档 | `server/src/archive.ts`；文件在 `server/data/archives` |
 | 前端页面 | `src/views/`，接口清单 `src/api/endpoints.ts` |
 | 联调假数据 | `mock/`（`npm run dev`） |
+
+## 对话历史
+
+每人默认只看自己的会话。主人/管理员能看全部（有提问人、来源：网页/外部）。点开别人的会话只读，仍可勾选入库或删除。外部 agent 调 `/api/agent/ask` 时带 `sessionId` 续场；不带则接最近一场（`chat.agentIdleHours`，默认 8 小时），`"new": true` 新开。周归档按 ISO 周写本机文件，不自动进正式库，网页可「送入待确认」。
 
 ## 怎么完善（给人和 Agent 的工作流）
 

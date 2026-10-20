@@ -5,7 +5,8 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import Busboy from 'busboy'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { assertCanConfirm, canSee, parseSlug } from './access.js'
-import { cancelAll, cancelAsk, collectAskResult, contextOf, handleAsk, runAsk } from './ask.js'
+import { archiveToPending, listArchives, readArchive, writeWeeklyArchives } from './archive.js'
+import { cancelAll, cancelAsk, collectAskResult, contextOf, handleAsk, resolveAgentSession, runAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
 import { GBrainError, captureGBrain, listGBrain, searchGBrain } from './gbrain.js'
@@ -188,6 +189,12 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     if (user.role !== 'owner') return res.status(403).json({ message: '仅主人可用' })
     next()
   }
+  const isStaff = (user: User) => user.role === 'owner' || user.role === 'admin'
+  const canViewSession = (user: User, row: { userId: string }) => user.id === row.userId || isStaff(user)
+  const sessionJson = (row: ReturnType<KbDb['getChatSessionRow']> & object, user: User) => {
+    const r = row as NonNullable<ReturnType<KbDb['getChatSessionRow']>>
+    return { ...r, mine: r.userId === user.id, readOnly: r.userId !== user.id }
+  }
 
   app.post(
     '/api/auth/register',
@@ -267,17 +274,43 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     void handleFeishuEvent(db, config, payload.event, replyFeishu).catch((err) => console.error('[feishu]', err))
   })
 
-  app.get('/api/chat/sessions', requireUser, (req, res) => {
-    res.json(db.listChatSessions(userOf(res)!.id))
+  app.get('/api/chat/sessions', requireUser, (_req, res) => {
+    const user = userOf(res)!
+    const rows = isStaff(user) ? db.listChatSessions() : db.listChatSessions({ userId: user.id })
+    res.json(rows.map((r) => sessionJson(r, user)))
   })
 
   app.get(
     '/api/chat/sessions/:id/messages',
     requireUser,
     asyncRoute(async (req, res) => {
-      const session = db.getChatSession(req.params.id, userOf(res)!.id)
-      if (!session) throw new HttpError(404, '会话不存在')
+      const user = userOf(res)!
+      const session = db.getChatSessionRow(req.params.id)
+      if (!session || !canViewSession(user, session)) throw new HttpError(404, '会话不存在')
       res.json(db.listMessages(req.params.id))
+    }),
+  )
+
+  app.get(
+    '/api/chat/sessions/:id',
+    requireUser,
+    asyncRoute(async (req, res) => {
+      const user = userOf(res)!
+      const session = db.getChatSessionRow(req.params.id)
+      if (!session || !canViewSession(user, session)) throw new HttpError(404, '会话不存在')
+      res.json(sessionJson(session, user))
+    }),
+  )
+
+  app.delete(
+    '/api/chat/sessions/:id',
+    requireUser,
+    asyncRoute(async (req, res) => {
+      const user = userOf(res)!
+      const session = db.getChatSessionRow(req.params.id)
+      if (!session || !canViewSession(user, session)) throw new HttpError(404, '会话不存在')
+      db.deleteChatSession(session.id)
+      res.json({ ok: true })
     }),
   )
 
@@ -362,6 +395,103 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         updatedAt: new Date().toISOString(),
       })
       res.json({ ok: true, id })
+    }),
+  )
+
+  app.post(
+    '/api/chat/save-selected',
+    requireUser,
+    asyncRoute(async (req, res) => {
+      const user = userOf(res)!
+      const sessionId = String(req.body?.sessionId ?? '')
+      const session = db.getChatSessionRow(sessionId)
+      if (!session || !canViewSession(user, session)) throw new HttpError(404, '会话不存在')
+      const ids = Array.isArray(req.body?.messageIds) ? req.body.messageIds.map((x: unknown) => String(x)) : []
+      if (!ids.length) throw new HttpError(400, '请选择要入库的回答')
+      const messages = db.listMessages(sessionId)
+      const parts: string[] = []
+      for (const id of ids) {
+        const answer = messages.find((m) => m.id === id && m.role === 'assistant')
+        if (!answer) continue
+        const idx = messages.indexOf(answer)
+        const question = [...messages.slice(0, idx)].reverse().find((m) => m.role === 'user')
+        parts.push(`## ${question?.text || '（无提问）'}\n\n${answer.text}`)
+      }
+      if (!parts.length) throw new HttpError(400, '没有可保存的内容')
+      const title = `[对话摘录] ${session.title}`.slice(0, 80)
+      const existing = db.listDocs({ keyword: title, hideTopSecret: false }).find((d) => d.title === title)
+      if (existing) {
+        res.json({ ok: true, duplicate: true, id: existing.id })
+        return
+      }
+      const content = [
+        ...parts,
+        '',
+        '---',
+        '',
+        `- 来源：对话摘录（${session.source === 'agent' ? '外部' : '网页'}）`,
+        `- 提问人：${session.userName}`,
+        `- 提交人：${user.name}／${user.role}`,
+        `- 时间：${new Date().toISOString()}`,
+        `- 会话：${sessionId}`,
+      ].join('\n')
+      const id = newId('d')
+      db.insertDoc({
+        id,
+        title,
+        field: config.defaults.field,
+        sensitivity: config.defaults.sensitivity,
+        status: 'pending',
+        suggestedField: guessField(content, config),
+        suggestedSensitivity: guessSensitivity(content, config),
+        content,
+        updatedAt: new Date().toISOString(),
+      })
+      res.json({ ok: true, id })
+    }),
+  )
+
+  app.get('/api/chat/archives', requireUser, (_req, res) => {
+    const user = userOf(res)!
+    const rows = listArchives(db, dataDir)
+      .filter((r) => isStaff(user) || r.userId === user.id)
+      .map((r) => ({ ...r, mine: r.userId === user.id }))
+    res.json(rows)
+  })
+
+  app.post(
+    '/api/chat/archives/run',
+    requireAdmin,
+    asyncRoute(async (_req, res) => {
+      const out = writeWeeklyArchives(db, dataDir, config, { force: true })
+      res.json({ ok: true, ...out })
+    }),
+  )
+
+  app.get(
+    '/api/chat/archives/:userId/:weekKey',
+    requireUser,
+    asyncRoute(async (req, res) => {
+      const user = userOf(res)!
+      if (!isStaff(user) && req.params.userId !== user.id) throw new HttpError(404, '归档不存在')
+      const markdown = readArchive(dataDir, req.params.userId, req.params.weekKey)
+      if (!markdown) throw new HttpError(404, '归档不存在')
+      res.json({ markdown, title: `对话归档 ${req.params.weekKey}` })
+    }),
+  )
+
+  app.post(
+    '/api/chat/archives/:userId/:weekKey/to-pending',
+    requireUser,
+    asyncRoute(async (req, res) => {
+      const user = userOf(res)!
+      if (!isStaff(user) && req.params.userId !== user.id) throw new HttpError(404, '归档不存在')
+      try {
+        const out = archiveToPending(db, dataDir, config, req.params.userId, req.params.weekKey, user.name)
+        res.json({ ok: true, ...out })
+      } catch (err) {
+        throw new HttpError(404, err instanceof Error ? err.message : '归档不存在')
+      }
     }),
   )
 
@@ -955,21 +1085,23 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const query = String(req.body?.query ?? '').trim()
       if (!query) throw new HttpError(400, 'query 必填')
       const user = agentUserOf(req)
+      const sessionId = resolveAgentSession(db, user, config, req.body ?? {})
       const collected = collectAskResult()
       await runAsk(
         user,
         db,
         config,
-        { type: 'ask', questionId: newId('q'), question: query },
+        { type: 'ask', questionId: newId('q'), question: query, sessionId },
         collected.emit,
         undefined,
-        { publicOnly: true },
+        { publicOnly: true, source: 'agent' },
       )
       const out = collected.result()
       if (out.error && !out.answer) throw new HttpError(502, out.error)
       res.json({
         ok: true,
         user: user.name,
+        sessionId: out.sessionId || sessionId,
         answer: out.answer,
         phase: out.phase,
         citations: out.citations,
@@ -1033,6 +1165,16 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   const server = createServer(app)
   attachWs(server, db, config)
 
+  const runArchive = () => {
+    try {
+      writeWeeklyArchives(db, dataDir, config)
+    } catch (err) {
+      console.error('[archive]', err)
+    }
+  }
+  runArchive()
+  const archiveTimer = setInterval(runArchive, 3600_000)
+
   await new Promise<void>((resolve) => server.listen(port, host, resolve))
   const address = server.address()
   const actual = typeof address === 'object' && address ? address.port : port
@@ -1040,6 +1182,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     port: actual,
     close: () =>
       new Promise((resolve, reject) => {
+        clearInterval(archiveTimer)
         server.close((err) => {
           db.close()
           if (err) reject(err)

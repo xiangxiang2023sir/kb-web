@@ -66,6 +66,9 @@ export const sessions: MockSession[] = [
     title: '变频器过载跳闸处理',
     updatedAt: '2026-10-16T09:32:00.000Z',
     preview: '变频器过载跳闸（F009）处理步骤：1. 立即停机检查……',
+    userId: 'u3',
+    userName: 'wang',
+    source: 'web',
     messages: [
       {
         id: 's1-m1',
@@ -109,6 +112,9 @@ export const sessions: MockSession[] = [
     title: '空压机保养周期咨询',
     updatedAt: '2026-10-15T16:20:00.000Z',
     preview: '空压机日常保养分为班检、月检和年检三个层级……',
+    userId: 'u4',
+    userName: 'li',
+    source: 'agent',
     messages: [
       {
         id: 's2-m1',
