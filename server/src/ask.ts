@@ -205,16 +205,8 @@ export async function runAsk(
     return
   }
 
-  // 不是提问而是「告知」：不查库，只回一句确认（前端会提示可存入知识库）
-  if (!attachments.length && looksLikeStatement(question, config.chat.questionWords)) {
-    const text = config.chat.ackText
-    emit({ type: 'status', questionId, phase: 'acknowledged' })
-    for (const part of chunkText(text)) emit({ type: 'delta', questionId, text: part })
-    persist(db, user, sessionId, question, attachments, text, [], undefined, askedAt, questionId, emit, source, config)
-    emit({ type: 'done', questionId })
-    return
-  }
-
+  // 已按主人要求取消「陈述句=告知」的模糊判断：
+  // 除打招呼外一律检索；入库只认明确触发词（入库 / 记一下 / 存一下，前端拦截）
   const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
   const query = searchTermsOf(stripped)
   const hits = await collectHits(

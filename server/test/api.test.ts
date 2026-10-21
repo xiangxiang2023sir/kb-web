@@ -489,10 +489,10 @@ agent: { publicOnlyOnly: true }
     const gone = await fetch(`${base}/api/chat/sessions/${wangSid}/messages`, { headers: { cookie: wangCookie } })
     assert.equal(gone.status, 404)
 
-    const told = await ask(base, cookie, '我改成了 0.5 米每秒，记录一下')
-    assert.ok(told.some((e) => e.type === 'status' && e.phase === 'acknowledged'), '告知应走确认分支')
-    assert.ok(!told.some((e) => e.type === 'citation'), '告知不应检索出引用')
-    assert.ok(told.some((e) => e.type === 'done'))
+    // 已取消「陈述句=告知」的模糊判断：陈述句也一律检索，只认明确的入库触发词
+    const told = await ask(base, cookie, '我改成了 0.5 米每秒')
+    assert.ok(!told.some((e) => e.type === 'status' && e.phase === 'acknowledged'), '不再走告知分支')
+    assert.ok(told.length > 0, '陈述句也应正常处理（走检索或返回错误），而不是静默丢弃')
 
     const saved = await fetch(`${base}/api/chat/save-to-kb`, {
       method: 'POST',
