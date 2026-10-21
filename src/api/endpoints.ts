@@ -298,3 +298,23 @@ export const projectsApi = {
   mine: () =>
     http.get<{ id: string; name: string; role: string | null }[]>('/projects/mine').then((r) => r.data),
 }
+
+/** 对话里「入库 xxx」：先整理，用户确认后再提交 */
+export interface IntakeDraft {
+  title: string
+  content: string
+  field: string
+  sensitivity: string
+  project: string | null
+}
+export const intakeApi = {
+  prepare: (raw: string) =>
+    http
+      .post<{ ok: boolean; draft: IntakeDraft; similar: { slug: string; title: string }[] }>(
+        '/chat/prepare-intake',
+        { raw },
+      )
+      .then((r) => r.data),
+  save: (payload: { title: string; content: string; field: string; sensitivity: string; project?: string | null; sessionId?: string }) =>
+    http.post('/chat/save-to-kb', payload).then((r) => r.data),
+}

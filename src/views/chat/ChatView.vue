@@ -9,6 +9,7 @@ import { useChatStore, type ChatMessage } from '@/stores/chat'
 import CitationCard from '@/components/CitationCard.vue'
 import ConfidenceBadge from '@/components/ConfidenceBadge.vue'
 import { chatSourceLabels } from '@/utils/labels'
+import { intakeApi, projectsApi } from '@/api/endpoints'
 
 // html: false —— 转义原始 HTML，防止注入；需要富 Markdown 渲染时可再扩展
 const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
@@ -80,11 +81,68 @@ watch(
   },
 )
 
-function send() {
+/** 入库触发词：「入库 xxx」「xxx 入库」「记一下 xxx」「存一下 xxx」 */
+const INTAKE_RE = /^(请?帮我)?(入库|记一下|记录一下|存一下|存起来)[:：\s]*|[，,\s]*(入库|存起来)[。！!]?$/
+
+async function send() {
   const text = draft.value.trim()
   if (!text && chat.pendingAttachments.length === 0) return
+  if (text && INTAKE_RE.test(text)) {
+    await prepareIntake(text)
+    return
+  }
   chat.ask(text)
   draft.value = ''
+}
+
+// ---- 入库：先整理再确认 ----
+const intakeVisible = ref(false)
+const intakeLoading = ref(false)
+const intakeSaving = ref(false)
+const intakeDraft = ref<{ title: string; content: string; field: string; sensitivity: string; project: string | null } | null>(null)
+const intakeSimilar = ref<{ slug: string; title: string }[]>([])
+const intakeProjects = ref<{ id: string; name: string }[]>([])
+const intakeProject = ref('')
+
+async function prepareIntake(raw: string) {
+  intakeLoading.value = true
+  try {
+    if (!intakeProjects.value.length) intakeProjects.value = await projectsApi.mine().catch(() => [])
+    const r = await intakeApi.prepare(raw)
+    intakeDraft.value = r.draft
+    intakeSimilar.value = r.similar || []
+    intakeProject.value = r.draft.project || ''
+    intakeVisible.value = true
+  } catch (e) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '整理失败'
+    ElMessage.error(msg)
+  } finally {
+    intakeLoading.value = false
+  }
+}
+
+async function submitIntake() {
+  if (!intakeDraft.value) return
+  intakeSaving.value = true
+  try {
+    await intakeApi.save({
+      title: intakeDraft.value.title,
+      content: intakeDraft.value.content,
+      field: intakeDraft.value.field,
+      sensitivity: intakeDraft.value.sensitivity,
+      project: intakeProject.value || null,
+      sessionId: chat.sessionId || undefined,
+    })
+    ElMessage.success('已提交，进「待确认」等审核')
+    intakeVisible.value = false
+    intakeDraft.value = null
+    draft.value = ''
+  } catch (e) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '提交失败'
+    ElMessage.error(msg)
+  } finally {
+    intakeSaving.value = false
+  }
 }
 
 /** 选择照片上传 */
@@ -135,7 +193,29 @@ function retry(m: ChatMessage) {
           <el-button size="small" type="success" :disabled="!selectedCount" @click="submitSelected">
             选中 {{ selectedCount }} 条入库
           </el-button>
-        </template>
+        
+    <!-- 入库预览：先整理再确认 -->
+    <el-dialog v-model="intakeVisible" title="确认入库（会先进「待确认」）" width="640px" top="6vh">
+      <div v-if="intakeDraft">
+        <div class="intake-title">{{ intakeDraft.title }}</div>
+        <div class="intake-meta">
+          <el-tag size="small">{{ intakeDraft.field }}</el-tag>
+          <el-tag size="small" type="info">{{ intakeDraft.sensitivity }}</el-tag>
+          <el-select v-model="intakeProject" placeholder="归属项目（不选=公共库）" clearable size="small" style="width: 200px">
+            <el-option v-for="p in intakeProjects" :key="p.id" :label="p.name" :value="p.id" />
+          </el-select>
+        </div>
+        <div v-if="intakeSimilar.length" class="intake-warn">
+          可能重复：<span v-for="s in intakeSimilar" :key="s.slug" class="dup">{{ s.title }}</span>
+        </div>
+        <div class="intake-body" v-html="renderMd(intakeDraft.content)" />
+      </div>
+      <template #footer>
+        <el-button @click="intakeVisible = false">取消</el-button>
+        <el-button type="primary" :loading="intakeSaving" @click="submitIntake">提交待确认</el-button>
+      </template>
+    </el-dialog>
+</template>
         <el-button size="small" type="danger" plain @click="removeSession">删除会话</el-button>
       </div>
     </div>
@@ -500,5 +580,37 @@ function retry(m: ChatMessage) {
   .caret {
     animation: none;
   }
+}
+</style>
+
+<style scoped>
+.intake-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.intake-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.intake-warn {
+  font-size: 12px;
+  color: #e6a23c;
+  margin-bottom: 8px;
+}
+.intake-warn .dup {
+  margin-right: 8px;
+  text-decoration: underline;
+}
+.intake-body {
+  max-height: 46vh;
+  overflow: auto;
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 10px 14px;
+  line-height: 1.7;
+  font-size: 13px;
 }
 </style>

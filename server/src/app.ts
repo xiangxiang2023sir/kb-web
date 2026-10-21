@@ -353,6 +353,46 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   })
 
   // 把一轮对话（问题/告知 + 回答 + 出处）沉淀成待确认文档；管理员确认领域密级后才真正入库
+  // 网页对话里「入库 xxx」：先整理再让用户确认（只整理不落库）
+  app.post(
+    '/api/chat/prepare-intake',
+    requireUser,
+    asyncRoute(async (req, res) => {
+      const me = userOf(res)!
+      if (hitRate(`prepare:web:${me.id}`, 10)) throw new HttpError(429, '整理过于频繁（每分钟 10 次）')
+      let raw = String(req.body?.raw ?? '').trim()
+      if (!raw) throw new HttpError(400, 'raw 必填')
+      // 去掉触发词，只留正文
+      raw = raw.replace(/^(请?帮我)?(入库|记一下|记录一下|存一下|存起来)[:：\s]*/i, '').replace(/[，,\s]*(入库|存起来)[。！!]?$/, '').trim()
+      if (raw.length < 4) throw new HttpError(400, '内容太短，说全一点再入库')
+      const draft = await prepareIntake(config, raw.slice(0, 20000), {
+        field: isField(req.body?.field) ? req.body.field : null,
+        sensitivity: 'internal',
+      })
+      const suggested = suggestProjectId(`${draft.title} ${draft.content}`)
+      let similar: { slug: string; title: string }[] = []
+      try {
+        const hits = await searchGBrainMulti(config, draft.title, 5, 0, ['default', ...db.projectsOfUser(me.id)])
+        similar = hits
+          .filter((h) => !/\/top_secret\//.test(String(h.slug)))
+          .map((h) => ({ slug: String(h.slug), title: String((h as { title?: string }).title ?? h.slug) }))
+      } catch {
+        similar = []
+      }
+      res.json({
+        ok: true,
+        draft: {
+          title: draft.title,
+          content: draft.content,
+          field: draft.field ?? config.defaults.field,
+          sensitivity: draft.sensitivity ?? 'internal',
+          project: suggested,
+        },
+        similar,
+      })
+    }),
+  )
+
   app.post(
     '/api/chat/save-to-kb',
     requireUser,
@@ -362,9 +402,13 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const answer = String(req.body?.answer ?? '').trim()
       const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : ''
       const rawCitations = Array.isArray(req.body?.citations) ? req.body.citations : []
-      if (!question && !answer) throw new HttpError(400, '没有可保存的内容')
+      const preparedTitle = String(req.body?.title ?? '').trim()
+      const preparedContent = String(req.body?.content ?? '').trim()
+      if (!question && !answer && !preparedContent) throw new HttpError(400, '没有可保存的内容')
 
-      const title = `[对话沉淀] ${(question || answer).replace(/\s+/g, ' ').slice(0, 40)}`
+      const title = preparedTitle
+        ? `[经验] ${preparedTitle.replace(/\s+/g, ' ').slice(0, 60)}`
+        : `[对话沉淀] ${(question || answer).replace(/\s+/g, ' ').slice(0, 40)}`
       // 去重：同名待确认文档已存在就不再重复提交
       const existing = db.listDocs({ keyword: title, hideTopSecret: false }).find((d) => d.title === title)
       if (existing) {
@@ -375,7 +419,9 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const cited = rawCitations
         .map((c: unknown) => (c && typeof (c as { title?: unknown }).title === 'string' ? (c as { title: string }).title : ''))
         .filter(Boolean)
-      const body = [
+      const body = preparedContent
+        ? `${preparedContent}\n\n---\n\n- 来源：对话入库（kb-web）\n- 提交人：${user.name}／${user.role}\n- 时间：${new Date().toISOString()}\n- 会话：${sessionId || '—'}`
+        : [
         question ? `## ${question}` : '',
         answer || '（现场告知，无 AI 回答）',
         '',
@@ -387,11 +433,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         sessionId ? `- 会话：${sessionId}` : '',
         cited.length ? `- 引用：${cited.join('；')}` : '- 引用：无（现场告知）',
       ]
-        .filter((line) => line !== '')
-        .join('\n')
+          .filter((line) => line !== '')
+          .join('\n')
 
-      const field = config.defaults.field
-      const sensitivity = config.defaults.sensitivity
+      const field = isField(req.body?.field) ? req.body.field : config.defaults.field
+      const sensitivity = isSensitivity(req.body?.sensitivity) ? req.body.sensitivity : config.defaults.sensitivity
       const id = newId('d')
       // agent 提交时可带 project（必须是成员项目，否则 403）
       let capProject: string | null = null
