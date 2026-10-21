@@ -16,16 +16,17 @@ const error = ref('')
 
 const regVisible = ref(false)
 const regLoading = ref(false)
-const regForm = ref({ name: '', password: '', title: '', department: '', note: '' })
+const regForm = ref({ employeeNo: '', name: '', password: '', title: '', department: '', note: '' })
 
 async function doRegister() {
-  if (!regForm.value.name.trim() || regForm.value.password.length < 6 || !regForm.value.title.trim()) {
+  if (!regForm.value.employeeNo.trim() || !regForm.value.name.trim() || regForm.value.password.length < 6 || !regForm.value.title.trim()) {
     ElMessage.warning('请填名字、岗位，密码至少 6 位')
     return
   }
   regLoading.value = true
   try {
     const r = await authApi.register({
+      employeeNo: regForm.value.employeeNo.trim(),
       name: regForm.value.name.trim(),
       password: regForm.value.password,
       title: regForm.value.title.trim(),
@@ -34,7 +35,7 @@ async function doRegister() {
     })
     ElMessage.success(r.message || '已提交，等管理员批准')
     regVisible.value = false
-    regForm.value = { name: '', password: '', title: '', department: '', note: '' }
+    regForm.value = { employeeNo: '', name: '', password: '', title: '', department: '', note: '' }
   } catch (err) {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || '提交失败，请重试'
     ElMessage.error(msg)
@@ -49,7 +50,7 @@ function target() {
 
 async function doLogin() {
   if (!username.value || !password.value) {
-    error.value = '请输入用户名和密码'
+    error.value = '请输入工号和密码'
     return
   }
   loading.value = true
@@ -58,7 +59,7 @@ async function doLogin() {
     await auth.login(username.value, password.value)
     router.push(target())
   } catch {
-    error.value = '登录失败，请检查用户名和密码'
+    error.value = '登录失败，请检查工号和密码'
   } finally {
     loading.value = false
   }
@@ -85,7 +86,7 @@ async function doGuest() {
       <p class="sub">工厂内部 AI 问答系统 · 回答均有出处</p>
       <el-form size="large" @submit.prevent="doLogin">
         <el-form-item>
-          <el-input v-model="username" placeholder="用户名" autofocus />
+          <el-input v-model="username" placeholder="工号（如 10086 / jixiangxiang）" autofocus />
         </el-form-item>
         <el-form-item>
           <el-input v-model="password" type="password" placeholder="密码" show-password @keyup.enter="doLogin" />
@@ -101,7 +102,8 @@ async function doGuest() {
 
         <el-form label-width="80px">
 
-          <el-form-item label="名字"><el-input v-model="regForm.name" placeholder="真实姓名，登录用" /></el-form-item>
+          <el-form-item label="工号"><el-input v-model="regForm.employeeNo" placeholder="字母数字，登录时用它（如 10086）" /></el-form-item>
+          <el-form-item label="姓名"><el-input v-model="regForm.name" placeholder="真实姓名，界面显示用" /></el-form-item>
 
           <el-form-item label="岗位"><el-input v-model="regForm.title" placeholder="如 电气设计工程师" /></el-form-item>
 

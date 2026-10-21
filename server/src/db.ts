@@ -83,7 +83,7 @@ export class KbDb {
     name: string,
   ): (User & { passwordHash: string | null; status: string; title: string | null; department: string | null }) | null {
     const row = this.one(
-      `SELECT id, name, role, field, password_hash, status, title, department FROM users WHERE name = ?`,
+      `SELECT id, name, employee_no, role, field, password_hash, status, title, department FROM users WHERE name = ?`,
       name,
     )
     const user = userOf(row)
@@ -97,21 +97,49 @@ export class KbDb {
     }
   }
 
+  /** 登录：先按工号查，再兼容按姓名（老账号/管理员习惯） */
+  findUserByLogin(
+    login: string,
+  ): (User & { passwordHash: string | null; status: string; title: string | null; department: string | null; employeeNo: string | null }) | null {
+    const row = this.one(
+      `SELECT id, name, employee_no, role, field, password_hash, status, title, department FROM users WHERE employee_no = ? OR name = ? ORDER BY (employee_no = ?) DESC LIMIT 1`,
+      login,
+      login,
+      login,
+    )
+    const user = userOf(row)
+    if (!user || !row) return null
+    return {
+      ...user,
+      passwordHash: row.password_hash == null ? null : String(row.password_hash),
+      status: row.status == null ? 'approved' : String(row.status),
+      title: row.title == null ? null : String(row.title),
+      department: row.department == null ? null : String(row.department),
+      employeeNo: row.employee_no == null ? null : String(row.employee_no),
+    }
+  }
+
   findUserById(id: string): User | null {
-    return userOf(this.one(`SELECT id, name, role, field FROM users WHERE id = ?`, id))
+    return userOf(this.one(`SELECT id, name, employee_no, role, field FROM users WHERE id = ?`, id))
+  }
+
+  /** 改工号（登录名） */
+  setEmployeeNo(userId: string, employeeNo: string) {
+    this.run(`UPDATE users SET employee_no = ? WHERE id = ?`, employeeNo, userId)
   }
 
   listUsers(): User[] {
-    return this.many(`SELECT id, name, role, field FROM users WHERE role != 'guest' ORDER BY name`).map(
+    return this.many(`SELECT id, name, employee_no, role, field FROM users WHERE role != 'guest' ORDER BY name`).map(
       (r) => userOf(r)!,
     )
   }
 
-  insertUser(user: User, passwordHash: string) {
+  insertUser(user: User & { employeeNo?: string | null }, passwordHash: string) {
     this.run(
-      `INSERT INTO users (id, name, password_hash, role, field) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, name, employee_no, password_hash, role, field) VALUES (?, ?, ?, ?, ?, ?)`,
       user.id,
       user.name,
+      user.employeeNo ?? user.name,
       passwordHash,
       user.role,
       user.field,
@@ -523,18 +551,21 @@ export class KbDb {
 
   createPendingUser(row: {
     name: string
+    employeeNo?: string
     passwordHash: string
     title?: string
     department?: string
     applyNote?: string
   }): string | null {
     if (this.findUserByName(row.name)) return null
+    if (row.employeeNo && this.findUserByLogin(row.employeeNo)) return null
     const id = newId('u')
     this.run(
-      `INSERT INTO users (id, name, password_hash, role, field, title, department, status, applied_at, apply_note)
-       VALUES (?, ?, ?, 'guest', NULL, ?, ?, 'pending', ?, ?)`,
+      `INSERT INTO users (id, name, employee_no, password_hash, role, field, title, department, status, applied_at, apply_note)
+       VALUES (?, ?, ?, ?, 'guest', NULL, ?, ?, 'pending', ?, ?)`,
       id,
       row.name,
+      row.employeeNo ?? row.name,
       row.passwordHash,
       row.title ?? null,
       row.department ?? null,
@@ -546,10 +577,11 @@ export class KbDb {
 
   pendingUsers() {
     return this.many(
-      `SELECT id, name, title, department, applied_at, apply_note FROM users WHERE status = 'pending' ORDER BY applied_at DESC`,
+      `SELECT id, name, employee_no, title, department, applied_at, apply_note FROM users WHERE status = 'pending' ORDER BY applied_at DESC`,
     ).map((r) => ({
       id: String(r.id),
       name: String(r.name),
+      employeeNo: r.employee_no == null ? null : String(r.employee_no),
       title: r.title == null ? null : String(r.title),
       department: r.department == null ? null : String(r.department),
       appliedAt: r.applied_at == null ? null : String(r.applied_at),
@@ -1012,9 +1044,13 @@ for (const [col, ddl] of [
   ['status', "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'"],
   ['applied_at', 'ALTER TABLE users ADD COLUMN applied_at TEXT'],
   ['apply_note', 'ALTER TABLE users ADD COLUMN apply_note TEXT'],
+  ['employee_no', 'ALTER TABLE users ADD COLUMN employee_no TEXT'],
 ] as const) {
   if (!userCols.has(col)) db.exec(ddl)
 }
+// 工号：老账号先用姓名回填（admin/游客/纪祥祥 立刻能用原名字当工号登录），再加唯一索引
+db.exec("UPDATE users SET employee_no = name WHERE employee_no IS NULL OR employee_no = ''")
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_employee_no ON users(employee_no)')
 
 // docs 加提交人信息（回查用）：submitted_by / submitted_via / submitter_agent
 {

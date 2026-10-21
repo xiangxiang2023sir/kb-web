@@ -20,6 +20,8 @@ export type Sensitivity = 'public' | 'internal' | 'confidential' | 'top_secret'
 export interface User {
   id: string
   name: string
+  /** 工号：登录用，字母数字，界面上一般显示 name */
+  employeeNo?: string | null
   role: Role
   /** 操作员所属领域；管理员/主人为 null（可见全部领域） */
   field: Field | null

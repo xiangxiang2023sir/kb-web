@@ -37,7 +37,7 @@ export const authApi = {
   /** 游客进入：签发一个只能检索公开知识的会话 */
   guest: () => http.post<User>('/auth/guest').then((r) => r.data),
   /** 注册申请：提交后是 pending，管理员批准后才能登录 */
-  register: (payload: { name: string; password: string; title: string; department?: string; note?: string }) =>
+  register: (payload: { employeeNo: string; name: string; password: string; title: string; department?: string; note?: string }) =>
     http
       .post<{ ok: boolean; status: string; message: string }>('/auth/register', payload)
       .then((r) => r.data),
@@ -156,9 +156,9 @@ export const adminApi = {
   approveUser: (id: string, role: Role, field: Field | null) =>
     http.post(`/admin/users/${id}/approve`, { role, field }).then((r) => r.data),
   rejectUser: (id: string) => http.post(`/admin/users/${id}/reject`).then((r) => r.data),
-  createUser: (payload: { name: string; password: string; role: Role; field: Field | null }) =>
+  createUser: (payload: { employeeNo?: string; name: string; password: string; role: Role; field: Field | null }) =>
     http.post('/admin/users', payload),
-  updateUser: (id: string, payload: { role?: Role; field?: Field | null }) =>
+  updateUser: (id: string, payload: { employeeNo?: string; role?: Role; field?: Field | null }) =>
     http.patch(`/admin/users/${id}`, payload),
   deleteUser: (id: string) => http.delete(`/admin/users/${id}`).then((r) => r.data),
 }

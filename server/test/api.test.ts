@@ -276,7 +276,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const apply = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'newbie', password: 'secret1', title: '电工' }),
+      body: JSON.stringify({ employeeNo: 'A1001', name: 'newbie', password: 'secret1', title: '电工' }),
     })
     assert.equal(apply.status, 200)
     const pendingUsers = await fetch(`${base}/api/admin/users/pending`, { headers: { cookie: adminCookie } })

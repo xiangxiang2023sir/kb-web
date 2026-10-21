@@ -96,7 +96,8 @@ const dialogVisible = ref(false)
 const editing = ref<User | null>(null)
 const saving = ref(false)
 
-const form = reactive<{ name: string; password: string; role: Role; field: Field | null }>({
+const form = reactive<{ employeeNo: string; name: string; password: string; role: Role; field: Field | null }>({
+  employeeNo: '',
   name: '',
   password: '',
   role: 'operator',
@@ -105,13 +106,19 @@ const form = reactive<{ name: string; password: string; role: Role; field: Field
 
 function openCreate() {
   editing.value = null
-  Object.assign(form, { name: '', password: '', role: 'operator', field: 'electrical' })
+  Object.assign(form, { employeeNo: '', name: '', password: '', role: 'operator', field: 'electrical' })
   dialogVisible.value = true
 }
 
 function openEdit(u: User) {
   editing.value = u
-  Object.assign(form, { name: u.name, password: '', role: u.role, field: u.field })
+  Object.assign(form, {
+    employeeNo: u.employeeNo || '',
+    name: u.name,
+    password: '',
+    role: u.role,
+    field: u.field,
+  })
   dialogVisible.value = true
 }
 
@@ -121,9 +128,9 @@ async function save() {
     // 只有操作员需要领域；管理员/主人可见全部领域
     const field = form.role === 'operator' ? form.field : null
     if (editing.value) {
-      await adminApi.updateUser(editing.value.id, { role: form.role, field })
+      await adminApi.updateUser(editing.value.id, { employeeNo: form.employeeNo, role: form.role, field })
     } else {
-      await adminApi.createUser({ name: form.name, password: form.password, role: form.role, field })
+      await adminApi.createUser({ employeeNo: form.employeeNo, name: form.name, password: form.password, role: form.role, field })
     }
     ElMessage.success('已保存')
     dialogVisible.value = false
@@ -141,7 +148,8 @@ async function save() {
     <div v-if="pending.length" style="margin-bottom: 18px">
       <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px">注册申请（待批准 {{ pending.length }}）</div>
       <el-table :data="pending" size="small">
-        <el-table-column prop="name" label="名字" width="120" />
+        <el-table-column prop="employeeNo" label="工号" width="130" />
+        <el-table-column prop="name" label="姓名" width="120" />
         <el-table-column prop="title" label="岗位" width="150" />
         <el-table-column prop="department" label="部门" width="120" />
         <el-table-column prop="note" label="说明" show-overflow-tooltip />
@@ -181,7 +189,8 @@ async function save() {
 
     <el-skeleton v-if="loading && !list.length" :rows="5" animated />
     <el-table v-else v-loading="loading" :data="list">
-      <el-table-column prop="name" label="用户名" min-width="160" />
+      <el-table-column prop="employeeNo" label="工号" width="140" />
+      <el-table-column prop="name" label="姓名" min-width="140" />
       <el-table-column label="角色" width="120">
         <template #default="{ row }">{{ roleLabels[row.role as Role] }}</template>
       </el-table-column>
@@ -198,8 +207,11 @@ async function save() {
 
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑用户' : '新增用户'" width="420px">
       <el-form label-width="80px">
-        <el-form-item label="用户名">
-          <el-input v-model="form.name" :disabled="!!editing" />
+        <el-form-item label="工号">
+          <el-input v-model="form.employeeNo" placeholder="登录用，字母数字（如 10086）" />
+        </el-form-item>
+        <el-form-item label="姓名">
+          <el-input v-model="form.name" placeholder="界面显示用" />
         </el-form-item>
         <el-form-item v-if="!editing" label="初始密码">
           <el-input v-model="form.password" type="password" show-password />
