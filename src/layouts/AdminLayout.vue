@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { adminApi } from '@/api/endpoints'
 import { wsClient } from '@/api/ws'
 import { roleLabels } from '@/utils/labels'
 import {
@@ -18,6 +19,30 @@ import {
   Collection,
   FolderOpened,
 } from '@element-plus/icons-vue'
+
+const badge = reactive({ pendingDocs: 0, unassignedQuestions: 0, failedChecks: 0 })
+let badgeTimer: ReturnType<typeof setInterval> | undefined
+async function refreshBadge() {
+  try {
+    const o = await adminApi.overview()
+    badge.pendingDocs = o.pendingDocs ?? 0
+    badge.unassignedQuestions = o.unassignedQuestions ?? 0
+    badge.failedChecks = o.failedChecks ?? 0
+    // 浏览器标签也带红点数字（像微信那样）
+    const n = badge.pendingDocs + badge.unassignedQuestions
+    document.title = n > 0 ? `(${n}) 工业知识库 · 管理端` : '工业知识库 · 管理端'
+  } catch {
+    /* 后台轮询失败不打扰 */
+  }
+}
+onMounted(() => {
+  void refreshBadge()
+  badgeTimer = setInterval(refreshBadge, 30000)
+})
+onUnmounted(() => {
+  if (badgeTimer) clearInterval(badgeTimer)
+  document.title = '工业知识库 · 管理端'
+})
 
 const route = useRoute()
 const router = useRouter()
@@ -52,7 +77,7 @@ async function logout() {
           </el-menu-item>
           <el-menu-item index="/admin/docs">
             <el-icon><Document /></el-icon>
-            <span>文档列表</span>
+            <el-badge :value="badge.pendingDocs" :hidden="!badge.pendingDocs" :max="99" class="menu-badge"><span>文档列表</span></el-badge>
           </el-menu-item>
           <el-menu-item index="/admin/docs/upload">
             <el-icon><UploadFilled /></el-icon>
@@ -61,11 +86,11 @@ async function logout() {
         </el-menu-item-group>
         <el-menu-item index="/admin/health">
           <el-icon><CircleCheck /></el-icon>
-          <span>健康检查</span>
+          <el-badge :value="badge.failedChecks" :hidden="!badge.failedChecks" :max="99" class="menu-badge"><span>健康检查</span></el-badge>
         </el-menu-item>
         <el-menu-item index="/admin/questions">
           <el-icon><QuestionFilled /></el-icon>
-          <span>问题队列</span>
+          <el-badge :value="badge.unassignedQuestions" :hidden="!badge.unassignedQuestions" :max="99" class="menu-badge"><span>问题队列</span></el-badge>
         </el-menu-item>
         <el-menu-item index="/admin/assistant">
           <el-icon><ChatLineRound /></el-icon>
@@ -92,3 +117,14 @@ async function logout() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.menu-badge {
+  margin-left: 6px;
+}
+.menu-badge :deep(.el-badge__content) {
+  position: static;
+  transform: none;
+  margin-left: 4px;
+}
+</style>
