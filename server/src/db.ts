@@ -316,11 +316,12 @@ export class KbDb {
     content: string
     updatedAt: string
     sourcePath?: string
+    projectId?: string | null
   }) {
     this.run(
       `INSERT INTO docs
-        (id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, content, updated_at, source_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, content, updated_at, source_path, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       row.id,
       row.title,
       row.field,
@@ -331,10 +332,11 @@ export class KbDb {
       row.content,
       row.updatedAt,
       row.sourcePath ?? null,
+      row.projectId ?? null,
     )
   }
 
-  listDocs(filter: { keyword?: string; field?: string; sensitivity?: string; status?: string; hideTopSecret: boolean }) {
+  listDocs(filter: { keyword?: string; field?: string; sensitivity?: string; status?: string; hideTopSecret: boolean; project?: string }) {
     const where: string[] = []
     const args: unknown[] = []
     if (filter.keyword) {
@@ -348,6 +350,10 @@ export class KbDb {
     if (filter.sensitivity) {
       where.push(`sensitivity = ?`)
       args.push(filter.sensitivity)
+    }
+    if (filter.project) {
+      where.push(`project_id = ?`)
+      args.push(filter.project)
     }
     if (filter.status) {
       where.push(`status = ?`)
@@ -623,6 +629,11 @@ export class KbDb {
     ).map((r) => String(r.id))
   }
 
+  /** 改登记条目的归属项目 */
+  updateDocProject(id: string, projectId: string | null) {
+    this.run(`UPDATE docs SET project_id = ? WHERE id = ?`, projectId, id)
+  }
+
   /** 删一条文档登记（只删登记表，不动 GBrain） */
   deleteDoc(id: string) {
     this.run(`DELETE FROM docs WHERE id = ?`, id)
@@ -811,6 +822,7 @@ function count(db: KbDb, sql: string): number {
 
 function docItem(r: Row) {
   return {
+    projectId: r.project_id == null ? null : String(r.project_id),
     id: String(r.id),
     title: String(r.title),
     field: r.field as Field,

@@ -141,9 +141,12 @@ function stripPageOutput(stdout: string): string {
   return text
 }
 
-export async function captureGBrain(config: AppConfig, file: string, slug: string) {
+export async function captureGBrain(config: AppConfig, file: string, slug: string, sourceId?: string | null) {
   // --force：同 slug 重复确认（重新入库）时直接替换旧页，否则 GBrain 报 revision_required
-  await runGBrain(config, ['capture', '--file', file, '--slug', slug, '--force'], config.gbrain.timeoutMs * 2)
+  // --source：有项目就写进该项目的 source，没有就进 default（公共库）
+  const args = ['capture', '--file', file, '--slug', slug, '--force']
+  if (sourceId) args.push('--source', sourceId)
+  await runGBrain(config, args, config.gbrain.timeoutMs * 2)
 }
 
 export async function orphanGBrain(config: AppConfig): Promise<{ slug: string; title: string }[]> {

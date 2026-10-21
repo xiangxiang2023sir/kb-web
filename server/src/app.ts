@@ -392,12 +392,26 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const field = config.defaults.field
       const sensitivity = config.defaults.sensitivity
       const id = newId('d')
+      // agent 提交时可带 project（必须是成员项目，否则 403）
+      let capProject: string | null = null
+      const capPid = String(req.body?.project ?? '').trim()
+      if (capPid) {
+        const project = db.projectById(capPid)
+        if (!project) throw new HttpError(400, `项目 ${capPid} 不存在`)
+        if (project.status !== 'active') throw new HttpError(400, `项目 ${capPid} 已归档`)
+        const role = db.projectRoleOf(capPid, user.id)
+        if (!role && user.role !== 'owner') throw new HttpError(403, `你不是项目 ${capPid} 的成员`)
+        capProject = capPid
+      } else {
+        capProject = suggestProjectId(`${title} ${answer}`)
+      }
       db.insertDoc({
         id,
         title,
         field,
         sensitivity,
         status: 'pending',
+        projectId: capProject,
         suggestedField: field,
         suggestedSensitivity: sensitivity,
         content: body,
@@ -545,6 +559,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       field: req.query.field ? String(req.query.field) : undefined,
       sensitivity: req.query.sensitivity ? String(req.query.sensitivity) : undefined,
       status: req.query.status ? String(req.query.status) : undefined,
+      project: req.query.project ? String(req.query.project) : undefined,
       hideTopSecret: user.role !== 'owner',
     })
     res.json({ list: list.slice((page - 1) * size, page * size).map(({ slug: _s, ...item }) => item), total: list.length })
@@ -637,6 +652,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         field: suggestedField,
         sensitivity: suggestedSensitivity,
         status: 'pending',
+        projectId: suggestProjectId(`${title} ${text}`),
         suggestedField,
         suggestedSensitivity,
         content: text,
@@ -657,18 +673,31 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const sensitivity = req.body?.sensitivity
       if (!isField(field) || !isSensitivity(sensitivity)) throw new HttpError(400, '领域或密级不正确')
       assertCanConfirm(userOf(res)!, sensitivity)
+      // 归属项目：confirm 时传了就以传的为准（人可改），否则用登记时的建议值
+      const projectRaw = req.body?.project === undefined ? (doc.projectId ?? null) : (String(req.body.project).trim() || null)
+      let projectId: string | null = null
+      if (projectRaw) {
+        const project = db.projectById(projectRaw)
+        if (!project) throw new HttpError(400, `项目 ${projectRaw} 不存在`)
+        if (project.status !== 'active') throw new HttpError(400, `项目 ${projectRaw} 已归档，不能入库`)
+        projectId = projectRaw
+        db.updateDocProject(doc.id, projectId)
+      } else {
+        db.updateDocProject(doc.id, null)
+      }
       const slug = `${field}/${sensitivity}/${asciiSlug(doc.title, doc.id)}`
       const markdown = toMarkdown(doc.title, field, sensitivity, doc.content, originNameOf(dataDir, doc.sourcePath))
       const corpus = join(dataDir, 'corpus', `${slug}.md`)
       mkdirSync(dirname(corpus), { recursive: true })
       writeFileSync(corpus, markdown, 'utf8')
       try {
-        await captureGBrain(config, corpus, slug)
+        await captureGBrain(config, corpus, slug, projectId)
       } catch (err) {
         throw new HttpError(502, err instanceof GBrainError ? err.message : '入库失败')
       }
       db.confirmDoc(doc.id, field, sensitivity, slug, markdown, new Date().toISOString())
-      res.json({ ok: true })
+      audit(userOf(res)!.name, 'kb.confirm', slug, { projectId, field, sensitivity })
+      res.json({ ok: true, projectId })
     }),
   )
 
@@ -999,12 +1028,27 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         : ''
 
       const id = newId('d')
+      // agent 提交可带 project（必须是该项目成员，否则 403）；不带就按标题正文猜一个建议值
+      const capUser = agentUserOf(req)
+      let capProject: string | null = null
+      const capPid = String(req.body?.project ?? '').trim()
+      if (capPid) {
+        const project = db.projectById(capPid)
+        if (!project) throw new HttpError(400, `项目 ${capPid} 不存在`)
+        if (project.status !== 'active') throw new HttpError(400, `项目 ${capPid} 已归档`)
+        const role = db.projectRoleOf(capPid, capUser.id)
+        if (!role && capUser.role !== 'owner') throw new HttpError(403, `你不是项目 ${capPid} 的成员`)
+        capProject = capPid
+      } else {
+        capProject = suggestProjectId(`${title} ${content}`)
+      }
       db.insertDoc({
         id,
         title: fullTitle,
         field,
         sensitivity,
         status: 'pending',
+        projectId: capProject,
         suggestedField: field,
         suggestedSensitivity: sensitivity,
         content: `${content}\n\n---\n\n- 来源：agent 写入（${agent}）\n- 时间：${new Date().toISOString()}${similarNote}`,
@@ -1134,6 +1178,21 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       res.json({ ok: true, user: user.name, hits, noEvidence: hits.length ? null : config.noEvidence.text })
     }),
   )
+
+  /** 按标题/正文猜一个项目（只做默认值建议，最终由人选） */
+  function suggestProjectId(text: string): string | null {
+    const blob = text.slice(0, 4000)
+    const rules: [string, RegExp][] = [
+      ['tools', /feishu|飞书|hermes|kb-web|记忆|memory|md-to-word|报告|汇报|身份标签|示意图/i],
+      ['p-hikrobot', /海康|hikrobot|RCS|读码器|大华|dahua|svstudio|easyid|工业相机|barcode/i],
+      ['p-composite', /复合机器人|jaka|节卡|机械臂|plc|db20|db21|mcgs|斯坦德|oasis|飞拍|博图/i],
+      ['p-amr01', /自研|src|仙工|roboshop|步科|kinco|iwmc|igmk|esr5|伊顿|雷达|h1e0|锐|电池|配电|差速|agv|电机|can|充电|线束/i],
+    ]
+    for (const [id, re] of rules) {
+      if (re.test(blob) && db.projectById(id)) return id
+    }
+    return null
+  }
 
   /**
    * 解析请求里的 project，并算出这次检索能看的 source 列表：
