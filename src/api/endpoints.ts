@@ -127,8 +127,8 @@ export const adminApi = {
     return http.post<UploadResult>('/admin/docs/upload', form).then((r) => r.data)
   },
   /** 人工确认后才真正写入 GBrain */
-  confirmDoc: (id: string, field: Field, sensitivity: Sensitivity) =>
-    http.post(`/admin/docs/${id}/confirm`, { field, sensitivity }),
+  confirmDoc: (id: string, field: Field, sensitivity: Sensitivity, project?: string | null) =>
+    http.post(`/admin/docs/${id}/confirm`, { field, sensitivity, project: project ?? null }),
   rejectDoc: (id: string, reason: string) => http.post(`/admin/docs/${id}/reject`, { reason }),
 
   healthIssues: () => http.get<HealthIssue[]>('/admin/health/issues').then((r) => r.data),

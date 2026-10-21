@@ -58,10 +58,6 @@ async function logout() {
             <el-icon><UploadFilled /></el-icon>
             <span>上传文档</span>
           </el-menu-item>
-          <el-menu-item index="/admin/docs/review">
-            <el-icon><Finished /></el-icon>
-            <span>待确认</span>
-          </el-menu-item>
         </el-menu-item-group>
         <el-menu-item index="/admin/health">
           <el-icon><CircleCheck /></el-icon>

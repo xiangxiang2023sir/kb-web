@@ -31,7 +31,7 @@ const router = createRouter({
         { path: '', name: 'admin-dashboard', component: () => import('@/views/admin/DashboardView.vue'), meta: { title: '总览' } },
         { path: 'docs', name: 'admin-docs', component: () => import('@/views/admin/DocsView.vue'), meta: { title: '文档列表' } },
         { path: 'docs/upload', name: 'admin-doc-upload', component: () => import('@/views/admin/DocUploadView.vue'), meta: { title: '上传文档' } },
-        { path: 'docs/review', name: 'admin-doc-review', component: () => import('@/views/admin/DocReviewView.vue'), meta: { title: '待确认' } },
+        { path: 'docs/review', redirect: '/admin/docs' },
         { path: 'docs/:id', name: 'admin-doc-detail', component: () => import('@/views/admin/DocDetailView.vue'), meta: { title: '文档详情' } },
         { path: 'health', name: 'admin-health', component: () => import('@/views/admin/HealthView.vue'), meta: { title: '健康检查' } },
         { path: 'questions', name: 'admin-questions', component: () => import('@/views/admin/QuestionsView.vue'), meta: { title: '问题队列' } },
