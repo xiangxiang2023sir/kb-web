@@ -84,17 +84,6 @@ watch(
 /** 入库触发词：「入库 xxx」「xxx 入库」「记一下 xxx」「存一下 xxx」 */
 const INTAKE_RE = /^(请?帮我)?(入库|记一下|记录一下|存一下|存起来)[:：\s]*|[，,\s]*(入库|存起来)[。！!]?$/
 
-async function send() {
-  const text = draft.value.trim()
-  if (!text && chat.pendingAttachments.length === 0) return
-  if (text && INTAKE_RE.test(text)) {
-    await prepareIntake(text)
-    return
-  }
-  chat.ask(text)
-  draft.value = ''
-}
-
 // ---- 入库：先整理再确认 ----
 const intakeVisible = ref(false)
 const intakeLoading = ref(false)
@@ -104,8 +93,9 @@ const intakeSimilar = ref<{ slug: string; title: string }[]>([])
 const intakeProjects = ref<{ id: string; name: string }[]>([])
 const intakeProject = ref('')
 
-async function prepareIntake(raw: string) {
+async function prepareIntake(raw: string): Promise<boolean> {
   intakeLoading.value = true
+  const tip = ElMessage({ message: '正在整理，稍等一下…', type: 'info', duration: 0 })
   try {
     if (!intakeProjects.value.length) intakeProjects.value = await projectsApi.mine().catch(() => [])
     const r = await intakeApi.prepare(raw)
@@ -113,10 +103,13 @@ async function prepareIntake(raw: string) {
     intakeSimilar.value = r.similar || []
     intakeProject.value = r.draft.project || ''
     intakeVisible.value = true
+    return true
   } catch (e) {
-    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '整理失败'
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '整理失败，已按普通提问发出'
     ElMessage.error(msg)
+    return false
   } finally {
+    tip.close()
     intakeLoading.value = false
   }
 }
@@ -136,13 +129,27 @@ async function submitIntake() {
     ElMessage.success('已提交，进「待确认」等审核')
     intakeVisible.value = false
     intakeDraft.value = null
-    draft.value = ''
   } catch (e) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '提交失败'
     ElMessage.error(msg)
   } finally {
     intakeSaving.value = false
   }
+}
+
+async function send() {
+  const text = draft.value.trim()
+  if (!text && chat.pendingAttachments.length === 0) return
+  if (text && INTAKE_RE.test(text)) {
+    draft.value = ''
+    const ok = await prepareIntake(text)
+    if (!ok) {
+      chat.ask(text)
+    }
+    return
+  }
+  chat.ask(text)
+  draft.value = ''
 }
 
 /** 选择照片上传 */
@@ -193,29 +200,7 @@ function retry(m: ChatMessage) {
           <el-button size="small" type="success" :disabled="!selectedCount" @click="submitSelected">
             选中 {{ selectedCount }} 条入库
           </el-button>
-        
-    <!-- 入库预览：先整理再确认 -->
-    <el-dialog v-model="intakeVisible" title="确认入库（会先进「待确认」）" width="640px" top="6vh">
-      <div v-if="intakeDraft">
-        <div class="intake-title">{{ intakeDraft.title }}</div>
-        <div class="intake-meta">
-          <el-tag size="small">{{ intakeDraft.field }}</el-tag>
-          <el-tag size="small" type="info">{{ intakeDraft.sensitivity }}</el-tag>
-          <el-select v-model="intakeProject" placeholder="归属项目（不选=公共库）" clearable size="small" style="width: 200px">
-            <el-option v-for="p in intakeProjects" :key="p.id" :label="p.name" :value="p.id" />
-          </el-select>
-        </div>
-        <div v-if="intakeSimilar.length" class="intake-warn">
-          可能重复：<span v-for="s in intakeSimilar" :key="s.slug" class="dup">{{ s.title }}</span>
-        </div>
-        <div class="intake-body" v-html="renderMd(intakeDraft.content)" />
-      </div>
-      <template #footer>
-        <el-button @click="intakeVisible = false">取消</el-button>
-        <el-button type="primary" :loading="intakeSaving" @click="submitIntake">提交待确认</el-button>
-      </template>
-    </el-dialog>
-</template>
+        </template>
         <el-button size="small" type="danger" plain @click="removeSession">删除会话</el-button>
       </div>
     </div>
@@ -338,6 +323,27 @@ function retry(m: ChatMessage) {
       </div>
     </div>
   </div>
+    <!-- 入库预览：先整理再确认 -->
+    <el-dialog v-model="intakeVisible" title="确认入库（会先进「待确认」）" width="640px" top="6vh">
+      <div v-if="intakeDraft">
+        <div class="intake-title">{{ intakeDraft.title }}</div>
+        <div class="intake-meta">
+          <el-tag size="small">{{ intakeDraft.field }}</el-tag>
+          <el-tag size="small" type="info">{{ intakeDraft.sensitivity }}</el-tag>
+          <el-select v-model="intakeProject" placeholder="归属项目（不选=公共库）" clearable size="small" style="width: 200px">
+            <el-option v-for="p in intakeProjects" :key="p.id" :label="p.name" :value="p.id" />
+          </el-select>
+        </div>
+        <div v-if="intakeSimilar.length" class="intake-warn">
+          可能重复：<span v-for="s in intakeSimilar" :key="s.slug" class="dup">{{ s.title }}</span>
+        </div>
+        <div class="intake-body" v-html="renderMd(intakeDraft.content)" />
+      </div>
+      <template #footer>
+        <el-button @click="intakeVisible = false">取消</el-button>
+        <el-button type="primary" :loading="intakeSaving" @click="submitIntake">提交待确认</el-button>
+      </template>
+    </el-dialog>
 </template>
 
 <style scoped>
@@ -584,33 +590,12 @@ function retry(m: ChatMessage) {
 </style>
 
 <style scoped>
-.intake-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.intake-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.intake-warn {
-  font-size: 12px;
-  color: #e6a23c;
-  margin-bottom: 8px;
-}
-.intake-warn .dup {
-  margin-right: 8px;
-  text-decoration: underline;
-}
+.intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.intake-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.intake-warn { font-size: 12px; color: #e6a23c; margin-bottom: 8px; }
+.intake-warn .dup { margin-right: 8px; text-decoration: underline; }
 .intake-body {
-  max-height: 46vh;
-  overflow: auto;
-  background: #fafafa;
-  border-radius: 6px;
-  padding: 10px 14px;
-  line-height: 1.7;
-  font-size: 13px;
+  max-height: 46vh; overflow: auto; background: #fafafa; border-radius: 6px;
+  padding: 10px 14px; line-height: 1.7; font-size: 13px;
 }
 </style>
