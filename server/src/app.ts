@@ -1093,7 +1093,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         if (!pj) throw new HttpError(400, `项目 ${pid} 不存在`)
         if (pj.status !== 'active') throw new HttpError(400, `项目 ${pid} 已归档`)
         const role = db.projectRoleOf(pid, user.id)
-        if (!role && user.role !== 'owner') throw new HttpError(403, `你不是项目 ${pid} 的成员`)
+        if (!role && user.role !== 'owner') throw new HttpError(403, permDeniedMsg(pj.name, user.name))
         project = pid
       } else {
         project = suggestProjectId(`${draft.title} ${draft.content}`)
@@ -1314,6 +1314,24 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
+  // 外部 agent：这个账号能访问哪些项目（权限报错时用来引导用户）
+  app.get(
+    '/api/agent/projects',
+    asyncRoute(async (req, res) => {
+      const caller = callerOf(req)
+      if (!caller) throw new HttpError(401, 'token 无效')
+      const user = agentUserOf(req)
+      const mine = user.role === 'owner' ? db.listProjects() : db.listProjects().filter((p) => db.projectRoleOf(p.id, user.id))
+      res.json({
+        ok: true,
+        user: user.name,
+        projects: mine
+          .filter((p) => p.status === 'active')
+          .map((p) => ({ id: p.id, name: p.name, role: (db.projectRoleOf(p.id, user.id) || 'lead') as string })),
+      })
+    }),
+  )
+
   // ---- 外部 agent：只读检索（Hermes 等仍可拿片段；车间 Skill 走 /ask） ----
   app.post(
     '/api/agent/search',
@@ -1375,6 +1393,15 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
    * · 不带 project → 全局：公共库 default + 我参与的 active 项目（主人=全部 active 项目）
    * · 带 project   → 只查该项目；不存在/已归档/非成员直接报错（不静默降级）
    */
+  /** 403 统一文案：说清是权限问题、怎么申请，避免被当成"没有资料" */
+  function permDeniedMsg(projectName: string, userName: string): string {
+    return (
+      `你现在没有「${projectName}」的查看权限（账号「${userName}」不是该项目成员）。` +
+      '这是权限问题，不是知识库没有资料。请让知识库管理员在「项目管理 → 成员」里把这个账号加进该项目，' +
+      '或者换一个你能访问的项目再问。'
+    )
+  }
+
   function projectScope(
     user: User,
     projectParam: unknown,
@@ -1391,7 +1418,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     if (!project) throw new HttpError(404, `项目 ${pid} 不存在`)
     if (project.status !== 'active') throw new HttpError(403, `项目 ${pid} 已归档，不能按项目检索`)
     const role = db.projectRoleOf(pid, user.id)
-    if (!role && user.role !== 'owner') throw new HttpError(403, `你不是项目 ${pid} 的成员`)
+    if (!role && user.role !== 'owner') throw new HttpError(403, permDeniedMsg(project.name, user.name))
     return { sources: [pid], projectRole: role ?? 'lead' }
   }
 
@@ -1615,7 +1642,10 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status ?? 500
     if (status >= 500) console.error(err)
-    res.status(status).json({ message: status >= 500 ? '服务器内部错误' : err.message })
+    res.status(status).json({
+      message: status >= 500 ? '服务器内部错误' : err.message,
+      ...(status === 403 ? { hint: 'permission', action: '请让知识库管理员在「项目管理 → 成员」里把你的账号加入该项目' } : {}),
+    })
   })
 
   const host = opts?.host ?? process.env.HOST ?? '127.0.0.1'
