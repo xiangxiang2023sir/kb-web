@@ -97,14 +97,12 @@ export class KbDb {
     }
   }
 
-  /** 登录：先按工号查，再兼容按姓名（老账号/管理员习惯） */
+  /** 登录：只认工号（姓名仅作显示，不参与登录） */
   findUserByLogin(
     login: string,
   ): (User & { passwordHash: string | null; status: string; title: string | null; department: string | null; employeeNo: string | null }) | null {
     const row = this.one(
-      `SELECT id, name, employee_no, role, field, password_hash, status, title, department FROM users WHERE employee_no = ? OR name = ? ORDER BY (employee_no = ?) DESC LIMIT 1`,
-      login,
-      login,
+      `SELECT id, name, employee_no, role, field, password_hash, status, title, department FROM users WHERE employee_no = ? LIMIT 1`,
       login,
     )
     const user = userOf(row)
