@@ -43,6 +43,8 @@ export interface AppConfig {
     autoQueueFromAgent?: boolean
     /** 同人同问题多少小时内不重复入队 */
     dedupeHours?: number
+    /** 只有能看到全部活跃项目时才自动入队（权限受限不入队） */
+    requireFullAccess?: boolean
   }
   chat: {
     phrases: string[]
@@ -211,6 +213,7 @@ export function loadConfig(): AppConfig {
     questions: {
       autoQueueFromAgent: raw.questions?.autoQueueFromAgent !== false,
       dedupeHours: Number(raw.questions?.dedupeHours ?? 24),
+      requireFullAccess: raw.questions?.requireFullAccess !== false,
     },
     feishu: { groupOnlyMention: raw.feishu?.groupOnlyMention !== false },
   }

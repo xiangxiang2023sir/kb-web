@@ -98,3 +98,4 @@ feishu:
 questions:
   autoQueueFromAgent: true
   dedupeHours: 24
+  requireFullAccess: true
