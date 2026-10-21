@@ -9,7 +9,7 @@ import { canSee, parseSlug } from '../src/access.js'
 import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
 import { confidenceOf, type AppConfig } from '../src/config.js'
 import { openDb } from '../src/db.js'
-import { decodeUploadName, extractText, isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from '../src/text.js'
+import { coverageTermsOf, decodeUploadName, extractText, isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -50,12 +50,22 @@ test('设备短问仍走检索，陈述才当告知', () => {
 })
 
 test('疑问说法不进入检索词', () => {
-  const phrases = ['怎么处理', '如何处理', '怎么办', '如何', '是什么']
+  const phrases = ['怎么处理', '如何处理', '怎么办', '如何', '是什么', '是多少']
   assert.equal(searchQueryOf('变频器过载怎么处理', phrases), '变频器过载')
   assert.equal(searchQueryOf('如何处理变频器过载？', phrases), '变频器过载')
   assert.equal(searchQueryOf('润滑油是什么', phrases), '润滑油')
+  assert.equal(searchQueryOf('我们自研的AGV雷达精度是多少', phrases), '我们自研的AGV雷达精度')
   assert.equal(searchQueryOf('怎么处理', phrases), '怎么处理')
   assert.equal(searchQueryOf('F009', phrases), 'F009')
+})
+
+test('覆盖率词不切二字组', () => {
+  const terms = coverageTermsOf('我们自研的AGV雷达精度')
+  assert.ok(terms.includes('AGV'))
+  assert.ok(terms.includes('我们自研的'))
+  assert.ok(terms.includes('雷达精度'))
+  assert.equal(terms.includes('们自'), false)
+  assert.equal(terms.includes('自研'), false)
 })
 
 test('检索词切分成 GBrain 能或匹配的词组', () => {

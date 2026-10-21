@@ -5,7 +5,7 @@ import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User }
 import { KbDb, newId } from './db.js'
 import { GBrainError, pageBodyGBrain, searchGBrainMulti } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
-import { isSmallTalk, searchQueryOf, searchTermsOf } from './text.js'
+import { coverageTermsOf, isSmallTalk, searchQueryOf, searchTermsOf } from './text.js'
 
 export interface AskMessage {
   type: 'ask'
@@ -304,8 +304,8 @@ interface KeptHit {
 /**
  * 检索三步：
  * 1) 用去口语后的原句做 GBrain 语义检索，按领域/密级/项目过滤；
- * 2) 候选逐条读整页正文（search 只给一片 chunk，结论常在页面后段）；
- * 3) 用「归一化 GBrain 分 + 整页命中覆盖率」重排，取前 keep 条给模型。
+ * 2) 按 GBrain score 排序，覆盖率只做微弱加权（不切二字组）；
+ * 3) 只给前 keep 条读整页正文，交给模型。
  */
 async function collectHits(
   config: AppConfig,
@@ -382,43 +382,39 @@ async function collectHits(
   }
   if (candidates.length === 0) return candidates
 
-  await fillBodies(config, candidates, sources)
-
-  const terms = (searchTermsOf(query) || query).split(/\s+/).filter(Boolean)
+  const terms = coverageTermsOf(query)
   const weightOf = (term: string) => (term.length >= 4 ? 3 : term.length === 3 ? 2 : 1)
   const totalWeight = terms.reduce((sum, term) => sum + weightOf(term), 0) || 1
-  const maxScore = candidates.reduce((max, hit) => Math.max(max, hit.score), 0) || 1
-  for (const hit of candidates) {
-    const text = hit.body || hit.chunkText
-    const covered = terms.reduce((sum, term) => (text.includes(term) ? sum + weightOf(term) : sum), 0)
-    hit.rank = hit.score / maxScore + config.search.coverageWeight * (covered / totalWeight)
-  }
-  candidates.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))
-  if (process.env.KB_DEBUG_HITS === '1') {
-    console.error('[hits] FINAL ' + candidates.slice(0, config.search.keep).map((h) => `${h.slug}(rank=${(h.rank ?? 0).toFixed(3)},len=${(h.body || h.chunkText || '').length})`).join(' | '))
-  }
-  // 过滤弱相关：低于头部这个比例的候选不送进模型（避免凑数引用、答案跑题）
-  // 弱相关过滤默认关闭（阈值设为 0 即为关）：实测严格过滤会把真正相关的页切掉，
-  // 宁可交粗召回给模型；需要时在 config.yaml 里调 search.minRankRatio / minCoverage
-  if (config.search.minRankRatio <= 0 && config.search.minCoverage <= 0) {
-    return candidates.slice(0, config.search.keep)
-  }
-  const top = candidates[0]?.rank ?? 0
-  const floor = top * config.search.minRankRatio
-  const topScore = candidates[0]?.score ?? 0
   const coverageOf = (hit: KeptHit) => {
     const text = hit.body || hit.chunkText
+    if (!terms.length) return 0
     const covered = terms.reduce((sum, term) => (text.includes(term) ? sum + weightOf(term) : sum), 0)
     return covered / totalWeight
   }
-  const kept = candidates.filter(
-    (hit) =>
-      (hit.rank ?? 0) >= floor &&
-      hit.score >= topScore * 0.35 &&
-      coverageOf(hit) >= config.search.minCoverage,
-  )
-  const final = kept.length > 0 ? kept : candidates.slice(0, 1)
-  return final.slice(0, config.search.keep)
+  // 主序是 GBrain score；覆盖率只加一点点，避免「我们/自研」把无关页抬到第一。
+  for (const hit of candidates) {
+    hit.rank = hit.score + config.search.coverageWeight * coverageOf(hit)
+  }
+  candidates.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0) || b.score - a.score)
+  let kept = candidates
+  if (config.search.minRankRatio > 0 || config.search.minCoverage > 0) {
+    const top = candidates[0]?.rank ?? 0
+    const floor = top * config.search.minRankRatio
+    const topScore = candidates[0]?.score ?? 0
+    const filtered = candidates.filter(
+      (hit) =>
+        (hit.rank ?? 0) >= floor &&
+        hit.score >= topScore * 0.35 &&
+        coverageOf(hit) >= config.search.minCoverage,
+    )
+    kept = filtered.length > 0 ? filtered : candidates.slice(0, 1)
+  }
+  kept = kept.slice(0, config.search.keep)
+  await fillBodies(config, kept, sources)
+  if (process.env.KB_DEBUG_HITS === '1') {
+    console.error('[hits] FINAL ' + kept.map((h) => `${h.slug}(score=${h.score.toFixed(3)},rank=${(h.rank ?? 0).toFixed(3)},len=${(h.body || h.chunkText || '').length})`).join(' | '))
+  }
+  return kept
 }
 
 /** 并发读整页，单个页面失败不影响其余候选。 */

@@ -77,6 +77,24 @@ export function searchTermsOf(query: string): string {
 }
 
 /**
+ * 覆盖率只用型号/英文，以及完整中文片段，不再切二字组。
+ * 二字组会让「我们/自研」在无关页上覆盖率虚高，压过 GBrain 的语义第一名。
+ */
+export function coverageTermsOf(query: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  const add = (value: string) => {
+    const t = value.trim()
+    if (t.length < 2 || seen.has(t)) return
+    seen.add(t)
+    out.push(t)
+  }
+  for (const ascii of query.match(/[A-Za-z0-9][A-Za-z0-9._-]*/g) ?? []) add(ascii)
+  for (const run of query.match(CJK_RUN) ?? []) add(run)
+  return out
+}
+
+/**
  * multipart 文件名：busboy 默认按 latin1 解参数，UTF-8 中文会变成 ä¿å 这种。
  * 已是汉字的保持不动；把「UTF-8 字节被当成 latin1」的串还原。
  */

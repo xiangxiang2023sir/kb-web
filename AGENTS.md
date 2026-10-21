@@ -140,5 +140,6 @@
 - 把 parseJson / 检索词用「逐行修 JSON」这类脆弱逻辑
 - 为了多格式把 Word/Excel 解析交给未约束的 Agent 作为默认入库
 - 提交 `server/.env`、`server/data/`
+- 同时跑 `gbrain serve`（PGLite 单写者，serve 会锁库，CLI 全部 `pglite_busy`）
 - 把 kb-web 问答接到 `gbrain serve --http`（那是 MCP + OAuth，不是 REST；问答继续 CLI spawn）
 - 把中文问句拆成二字组当语义查询（bge-m3 要整句）
