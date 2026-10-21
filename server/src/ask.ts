@@ -307,6 +307,11 @@ interface KeptHit {
  * 2) 按 GBrain score 排序，覆盖率只做微弱加权（不切二字组）；
  * 3) 只给前 keep 条读整页正文，交给模型。
  */
+function hitLabel(hit: { score: number; slug: string; sourceId?: string }): string {
+  const src = hit.sourceId ? `@${hit.sourceId}` : ''
+  return `${hit.score.toFixed(3)}:${hit.slug}${src}`
+}
+
 async function collectHits(
   config: AppConfig,
   user: User,
@@ -316,71 +321,64 @@ async function collectHits(
   projectRole?: ProjectRole | null,
 ) {
   const want = Math.max(config.search.rerankCandidates, config.search.keep)
+  const allow = sources ?? []
+  const fetchLimit = allow.length > 1 ? Math.max(config.search.fetchLimit, 80) : config.search.fetchLimit
+  const rawRows: { slug: string; title: string; chunkText: string; score: number; sourceId?: string }[] = []
+  const pages = allow.length > 1 ? 1 : config.search.maxPages
+  for (let page = 0; page < pages; page++) {
+    const rows = await searchGBrainMulti(config, query, fetchLimit, page * fetchLimit, allow)
+    if (rows.length === 0) break
+    rawRows.push(...rows)
+  }
+
   const seen = new Set<string>()
   const candidates: KeptHit[] = []
-  for (let page = 0; page < config.search.maxPages && candidates.length < want; page++) {
-    const rows = await searchGBrainMulti(
-      config,
-      query,
-      config.search.fetchLimit,
-      page * config.search.fetchLimit,
-      sources ?? [],
-    )
-    if (rows.length === 0) break
-    for (const row of rows) {
-      const parsed = parseSlug(row.slug)
-      if (!parsed || seen.has(row.slug)) continue
-      const visible =
-        projectRole === undefined
-          ? canSee(user, parsed.field, parsed.sensitivity)
-          : canSeeInProject(user.role, projectRole, parsed.sensitivity)
-      const dbg = process.env.KB_DEBUG_HITS === '1'
-      if (!visible) {
-        if (dbg) console.error(`[hits] DROP-权限 ${row.slug} field=${parsed.field} sens=${parsed.sensitivity} user=${user.name}/${user.role}`)
-        continue
-      }
-      if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) {
-        if (dbg) console.error(`[hits] DROP-publicOnly ${row.slug} sens=${parsed.sensitivity}`)
-        continue
-      }
-      if (dbg) console.error(`[hits] KEEP ${row.slug} score=${row.score} sens=${parsed.sensitivity}`)
-      seen.add(row.slug)
-      candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
-      if (candidates.length >= want) break
+  const dropped: string[] = []
+  const passRow = (row: (typeof rawRows)[number]) => {
+    const parsed = parseSlug(row.slug)
+    if (!parsed) {
+      dropped.push(`slug:${row.slug}`)
+      return
     }
+    if (seen.has(row.slug)) return
+    const visible =
+      projectRole === undefined
+        ? canSee(user, parsed.field, parsed.sensitivity)
+        : canSeeInProject(user.role, projectRole, parsed.sensitivity)
+    if (!visible) {
+      dropped.push(`acl:${row.slug}`)
+      return
+    }
+    if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) {
+      dropped.push(`publicOnly:${row.slug}`)
+      return
+    }
+    seen.add(row.slug)
+    candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
   }
+  for (const row of rawRows) passRow(row)
+
+  console.error(`[hits] TRACE query=${JSON.stringify(query)} sources=${allow.join(',') || '-'} publicOnly=${publicOnly} projectRole=${projectRole ?? 'canSee'} user=${user.name}/${user.role}`)
+  console.error(`[hits] TRACE rawTop=${rawRows.slice(0, 5).map(hitLabel).join(' | ') || '(empty)'}`)
+  console.error(`[hits] TRACE afterAcl=${candidates.slice(0, 8).map(hitLabel).join(' | ') || '(empty)'} dropped=${dropped.slice(0, 8).join(',') || '0'}`)
+
   // 首轮用原句走语义；一条都没有时再拆成关键词补查（型号优先，其次二字组）。
-  // 语义已经有结果时不要拆：二字组会把无关高分页挤进 keep。
+  // 必须串行 spawn：并行会抢 PGLite。
   if (candidates.length === 0) {
     const all = searchTermsOf(query).split(/\s+/).filter(Boolean)
-    // 型号/英文词优先，其次 2 字词（实测 3 字词常命不中）
     const rank = (w: string) => (/[A-Za-z0-9]/.test(w) ? 0 : w.length === 2 ? 1 : 2)
     const terms = [...all].sort((a, b) => rank(a) - rank(b)).slice(0, 8)
-    const results = await Promise.all(
-      terms.map((term) =>
-        searchGBrainMulti(config, term, config.search.fetchLimit, 0, sources ?? []).catch(() => [] as KeptHit[]),
-      ),
-    )
-    for (const row of results.flat()) {
-      const parsed = parseSlug(row.slug)
-      if (!parsed) continue
-      const visible =
-        projectRole === undefined
-          ? canSee(user, parsed.field, parsed.sensitivity)
-          : canSeeInProject(user.role, projectRole, parsed.sensitivity)
-      if (!visible) continue
-      if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) continue
-      const exists = candidates.find((c) => c.slug === row.slug)
-      if (exists) {
-        exists.score = Math.max(exists.score, row.score)
-        continue
-      }
-      candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
+    for (const term of terms) {
+      const rows = await searchGBrainMulti(config, term, config.search.fetchLimit, 0, allow).catch(() => [])
+      for (const row of rows) passRow(row)
     }
     candidates.sort((a, b) => b.score - a.score)
     if (candidates.length > want) candidates.length = want
   }
-  if (candidates.length === 0) return candidates
+  if (candidates.length === 0) {
+    console.error('[hits] TRACE final=(empty)')
+    return candidates
+  }
 
   const terms = coverageTermsOf(query)
   const weightOf = (term: string) => (term.length >= 4 ? 3 : term.length === 3 ? 2 : 1)
@@ -410,10 +408,8 @@ async function collectHits(
     kept = filtered.length > 0 ? filtered : candidates.slice(0, 1)
   }
   kept = kept.slice(0, config.search.keep)
+  console.error(`[hits] TRACE final=${kept.map(hitLabel).join(' | ') || '(empty)'}`)
   await fillBodies(config, kept, sources)
-  if (process.env.KB_DEBUG_HITS === '1') {
-    console.error('[hits] FINAL ' + kept.map((h) => `${h.slug}(score=${h.score.toFixed(3)},rank=${(h.rank ?? 0).toFixed(3)},len=${(h.body || h.chunkText || '').length})`).join(' | '))
-  }
   return kept
 }
 

@@ -144,7 +144,7 @@ export function loadConfig(): AppConfig {
       maxPages: Number(raw.search?.maxPages ?? 2),
       questionPhrases:
         raw.search?.questionPhrases == null
-          ? ['怎么处理', '如何处理', '怎么办', '如何', '是什么', '是多少']
+          ? ['怎么处理', '如何处理', '怎么办', '如何', '是什么']
           : asStringArray(raw.search.questionPhrases),
       rerankCandidates: Number(raw.search?.rerankCandidates ?? 12),
       coverageWeight: Number(raw.search?.coverageWeight ?? 0.05),

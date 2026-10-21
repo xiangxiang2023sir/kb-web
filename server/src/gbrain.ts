@@ -17,6 +17,39 @@ export interface GBrainHit {
   sourceId?: string
 }
 
+/**
+ * __all__ 混排时，大源（AMR 141 页）的中等命中会把小源手册页挤出 limit。
+ * 每个允许的 source 先留若干条最高分，再用全局分数补齐。
+ */
+export function diversifyHitsBySource(hits: GBrainHit[], sources: string[], limit: number): GBrainHit[] {
+  const allow = new Set(sources)
+  const scoped = hits
+    .filter((h) => h.slug && (!h.sourceId || allow.has(h.sourceId)))
+    .sort((a, b) => b.score - a.score)
+  if (scoped.length <= limit) return scoped
+  const per = Math.max(3, Math.ceil(limit / Math.max(1, sources.length)))
+  const picked: GBrainHit[] = []
+  const used = new Set<string>()
+  for (const source of sources) {
+    let n = 0
+    for (const hit of scoped) {
+      if (n >= per || picked.length >= limit) break
+      if (used.has(hit.slug)) continue
+      if ((hit.sourceId ?? 'default') !== source) continue
+      picked.push(hit)
+      used.add(hit.slug)
+      n++
+    }
+  }
+  for (const hit of scoped) {
+    if (picked.length >= limit) break
+    if (used.has(hit.slug)) continue
+    picked.push(hit)
+    used.add(hit.slug)
+  }
+  return picked.sort((a, b) => b.score - a.score)
+}
+
 /** 参数数组调用，不经过 shell，避免问题文本被拼进命令。 */
 export function runGBrain(config: AppConfig, args: string[], timeoutMs = config.gbrain.timeoutMs): Promise<string> {
   const command = config.gbrain.command
@@ -304,13 +337,12 @@ export async function searchGBrainMulti(
 ): Promise<GBrainHit[]> {
   if (sources.length === 0) return []
   if (sources.length === 1) return searchGBrain(config, query, limit, offset, sources[0])
-  // 多源：一次查 __all__ 再按 source_id 过滤
-  // 原因：逐源各查一次要跑 N 次 embedding，慢好几倍，而且实测逐源拿回的是关键词结果、
-  //       合并查才走语义（2026-10-21 实测：单源 9 条含手册页第1名；逐源 12 条无手册页）
-  const res = await searchGBrain(config, query, limit, offset, '__all__')
+  // 多源：一次查 __all__（多取一些），再按 source 留名额。
+  // 不能逐源并行 spawn：PGLite 单写者，会 pglite_busy。
+  const wide = offset === 0 ? Math.min(150, Math.max(limit * 2, 80)) : limit
+  const res = await searchGBrain(config, query, wide, offset, '__all__')
   if (res.some((h) => h.sourceId)) {
-    const allow = new Set(sources)
-    return res.filter((h) => !h.sourceId || allow.has(h.sourceId))
+    return diversifyHitsBySource(res, sources, limit)
   }
   // 老版本 gbrain 没返回 source_id：退回逐源查
   const all = await Promise.all(

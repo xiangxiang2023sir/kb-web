@@ -6,6 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
+import { diversifyHitsBySource } from '../src/gbrain.js'
 import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
 import { confidenceOf, type AppConfig } from '../src/config.js'
 import { openDb } from '../src/db.js'
@@ -50,13 +51,27 @@ test('设备短问仍走检索，陈述才当告知', () => {
 })
 
 test('疑问说法不进入检索词', () => {
-  const phrases = ['怎么处理', '如何处理', '怎么办', '如何', '是什么', '是多少']
+  const phrases = ['怎么处理', '如何处理', '怎么办', '如何', '是什么']
   assert.equal(searchQueryOf('变频器过载怎么处理', phrases), '变频器过载')
   assert.equal(searchQueryOf('如何处理变频器过载？', phrases), '变频器过载')
   assert.equal(searchQueryOf('润滑油是什么', phrases), '润滑油')
-  assert.equal(searchQueryOf('我们自研的AGV雷达精度是多少', phrases), '我们自研的AGV雷达精度')
+  assert.equal(searchQueryOf('我们自研的AGV雷达精度是多少', phrases), '我们自研的AGV雷达精度是多少')
   assert.equal(searchQueryOf('怎么处理', phrases), '怎么处理')
   assert.equal(searchQueryOf('F009', phrases), 'F009')
+})
+
+test('多源混排时小源高分页仍留在候选里', () => {
+  const hits = [
+    { slug: 'electrical/internal/amr-a', title: 'a', chunkText: '', score: 0.88, sourceId: 'p-amr01' },
+    { slug: 'electrical/internal/amr-b', title: 'b', chunkText: '', score: 0.87, sourceId: 'p-amr01' },
+    { slug: 'electrical/internal/amr-c', title: 'c', chunkText: '', score: 0.86, sourceId: 'p-amr01' },
+    { slug: 'electrical/internal/amr-d', title: 'd', chunkText: '', score: 0.85, sourceId: 'p-amr01' },
+    { slug: 'electrical/confidential/h1e0-06b-单线激光雷达', title: 'radar', chunkText: '', score: 0.892, sourceId: 'p-composite' },
+    { slug: 'electrical/internal/wiring', title: 'w', chunkText: '', score: 0.7, sourceId: 'p-composite' },
+  ]
+  const out = diversifyHitsBySource(hits, ['default', 'p-amr01', 'p-composite'], 5)
+  assert.ok(out.some((h) => h.slug.includes('h1e0-06b-单线激光雷达')))
+  assert.equal(out[0]?.slug.includes('h1e0-06b'), true)
 })
 
 test('覆盖率词不切二字组', () => {
