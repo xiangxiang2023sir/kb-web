@@ -360,7 +360,9 @@ async function collectHits(
   // 关键：query 是 searchTermsOf 产出的「空格连接的词串」，
   // 整串丢给 gbrain 会被当成一个短语 → 中文必然 0 命中（2026-10-21 实测）
   // ⇒ 候选不足时逐词单独检索，再按 slug 合并取最高分
-  if (candidates.length < want) {
+  // 只在首轮一条都没拿到时才拆词补查：
+  // 语义检索已经能返回结果时，再拆词会把各词的高分页混进来，反而把真正相关的页挤出候选
+  if (candidates.length === 0) {
     const all = query.split(/\s+/).filter(Boolean)
     // 型号/英文词优先，其次 2 字词（实测 3 字词常命不中）
     const rank = (w: string) => (/[A-Za-z0-9]/.test(w) ? 0 : w.length === 2 ? 1 : 2)
