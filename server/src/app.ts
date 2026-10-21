@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage } from 'node:http'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import Busboy from 'busboy'
@@ -9,7 +9,16 @@ import { archiveToPending, listArchives, readArchive, writeWeeklyArchives } from
 import { cancelAll, cancelAsk, collectAskResult, contextOf, handleAsk, resolveAgentSession, runAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
 import { hashPassword, KbDb, newId, openDb, verifyPassword } from './db.js'
-import { GBrainError, captureGBrain, listGBrain, searchGBrain } from './gbrain.js'
+import {
+  GBrainError,
+  captureGBrain,
+  deleteGBrainPage,
+  gbrainStats,
+  listGBrain,
+  listGBrainFull,
+  pageBodyGBrain,
+  searchGBrain,
+} from './gbrain.js'
 import { runHealth } from './health.js'
 import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
 import { bearerOf } from './agentTokens.js'
@@ -1115,6 +1124,113 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       res.json({ ok: true, user: user.name, hits, noEvidence: hits.length ? null : config.noEvidence.text })
     }),
   )
+
+  // ================= 资料库（以 GBrain 为准）=================
+  const audit = (actor: string, action: string, target: string, extra?: Record<string, unknown>) => {
+    try {
+      const line = JSON.stringify({ at: new Date().toISOString(), actor, action, target, ...extra })
+      appendFileSync(join(dataDir, 'audit.log'), line + '\n')
+    } catch {
+      /* 审计写失败不影响主流程 */
+    }
+  }
+
+  // 库状态：页数/分块/互链/语义检索 + 按领域密级分布
+  app.get(
+    '/api/admin/kb/status',
+    requireAdmin,
+    asyncRoute(async (_req, res) => {
+      const [stats, pages] = await Promise.all([gbrainStats(config), listGBrainFull(config)])
+      const byField: Record<string, number> = {}
+      const bySensitivity: Record<string, number> = {}
+      let orphanCandidate = 0
+      for (const pg of pages) {
+        const parts = pg.slug.split('/')
+        byField[parts[0] ?? 'unknown'] = (byField[parts[0] ?? 'unknown'] ?? 0) + 1
+        bySensitivity[parts[1] ?? 'unknown'] = (bySensitivity[parts[1] ?? 'unknown'] ?? 0) + 1
+        if (parts.length !== 3) orphanCandidate++
+      }
+      res.json({
+        stats,
+        total: pages.length,
+        byField,
+        bySensitivity,
+        malformedSlugs: orphanCandidate,
+        recent: pages
+          .filter((pg) => pg.updatedAt)
+          .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+          .slice(0, 5),
+      })
+    }),
+  )
+
+  // 页面列表：直接读 GBrain，不再只读 docs 表
+  app.get(
+    '/api/admin/kb/pages',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const keyword = String(req.query.keyword ?? '').trim().toLowerCase()
+      const field = String(req.query.field ?? '').trim()
+      const sensitivity = String(req.query.sensitivity ?? '').trim()
+      const page = Math.max(1, Number(req.query.page ?? 1))
+      const size = Math.min(Math.max(1, Number(req.query.size ?? 20)), 200)
+      let all = await listGBrainFull(config)
+      all = all.filter((pg) => {
+        const parts = pg.slug.split('/')
+        if (field && parts[0] !== field) return false
+        if (sensitivity && parts[1] !== sensitivity) return false
+        if (keyword && !`${pg.slug} ${pg.title}`.toLowerCase().includes(keyword)) return false
+        return true
+      })
+      res.json({
+        total: all.length,
+        page,
+        size,
+        list: all.slice((page - 1) * size, page * size).map((pg) => {
+          const parts = pg.slug.split('/')
+          return { ...pg, field: parts[0] ?? '', sensitivity: parts[1] ?? '' }
+        }),
+      })
+    }),
+  )
+
+  // 单页正文：从 GBrain 取（docs 表里那些空壳也能看到内容）
+  app.get(
+    '/api/admin/kb/page',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const slug = String(req.query.slug ?? '').trim()
+      if (!slug) throw new HttpError(400, 'slug 必填')
+      const sensitivity = slug.split('/')[1] ?? ''
+      if (sensitivity === 'top_secret' && userOf(res)!.role !== 'owner') throw new HttpError(403, '绝密内容只有主人能看')
+      const body = await pageBodyGBrain(config, slug).catch(() => '')
+      if (!body.trim()) throw new HttpError(404, 'GBrain 里没有这一页')
+      res.json({ slug, content: body })
+    }),
+  )
+
+  // 删除一页：真删（页面 + 分块 + 磁盘 md），并清掉 docs 表里对应条目 + 记审计
+  app.delete(
+    '/api/admin/kb/page',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const me = userOf(res)!
+      const slug = String(req.query.slug ?? '').trim()
+      if (!slug) throw new HttpError(400, 'slug 必填')
+      const sensitivity = slug.split('/')[1] ?? ''
+      if (sensitivity === 'top_secret' && me.role !== 'owner') {
+        throw new HttpError(403, '绝密页面只有主人能删除')
+      }
+      await deleteGBrainPage(config, slug)
+      // 清掉登记表里指向这个 slug 的条目（docs 表只做登记，不是知识本体）
+      const ids = db.docIdsBySourcePath(slug)
+      for (const id of ids) db.deleteDoc(id)
+      const cleaned = ids.length
+      audit(me.name, 'kb.delete', slug, { sensitivity, cleanedDocs: cleaned })
+      res.json({ ok: true, slug, cleanedDocs: cleaned })
+    }),
+  )
+
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ message: '未实现' })

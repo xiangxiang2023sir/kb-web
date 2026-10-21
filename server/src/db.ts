@@ -537,6 +537,16 @@ export class KbDb {
     }))
   }
 
+  /** 删一条文档登记（只删登记表，不动 GBrain） */
+  deleteDoc(id: string) {
+    this.run(`DELETE FROM docs WHERE id = ?`, id)
+  }
+
+  /** 按 GBrain slug（存在 source_path 里）找登记条目 */
+  docIdsBySourcePath(slug: string): string[] {
+    return this.many(`SELECT id FROM docs WHERE source_path = ?`, slug).map((r) => String(r.id))
+  }
+
   /** 删用户：连带清掉会话与外部身份绑定 */
   deleteUser(id: string) {
     const sessions = this.many(`SELECT id FROM chat_sessions WHERE user_id = ?`, id)

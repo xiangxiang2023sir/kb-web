@@ -228,3 +228,41 @@ export const assistantApi = {
     return full
   },
 }
+
+export interface KbPageItem {
+  slug: string
+  title: string
+  type: string
+  updatedAt: string | null
+  field: string
+  sensitivity: string
+}
+export interface KbStatus {
+  stats: {
+    pageCount: number
+    chunkCount: number
+    embeddedCount: number
+    linkCount: number
+    tagCount: number
+    timelineCount: number
+    byType: Record<string, number>
+  }
+  total: number
+  byField: Record<string, number>
+  bySensitivity: Record<string, number>
+  malformedSlugs: number
+  recent: { slug: string; title: string; updatedAt: string | null }[]
+}
+
+/** 资料库（以 GBrain 为准） */
+export const kbApi = {
+  status: () => http.get<KbStatus>('/admin/kb/status').then((r) => r.data),
+  pages: (params: { keyword?: string; field?: string; sensitivity?: string; page?: number; size?: number }) =>
+    http
+      .get<{ total: number; page: number; size: number; list: KbPageItem[] }>('/admin/kb/pages', { params })
+      .then((r) => r.data),
+  page: (slug: string) =>
+    http.get<{ slug: string; content: string }>('/admin/kb/page', { params: { slug } }).then((r) => r.data),
+  remove: (slug: string) =>
+    http.delete<{ ok: boolean; slug: string; cleanedDocs: number }>('/admin/kb/page', { params: { slug } }).then((r) => r.data),
+}

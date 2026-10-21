@@ -15,6 +15,7 @@ import {
   ChatDotRound,
   ChatLineRound,
   SwitchButton,
+  Collection,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -40,6 +41,10 @@ async function logout() {
           <span>总览</span>
         </el-menu-item>
         <el-menu-item-group title="知识管理">
+          <el-menu-item v-if="auth.isAdmin" index="/admin/kb">
+            <el-icon><Collection /></el-icon>
+            <span>资料库</span>
+          </el-menu-item>
           <el-menu-item index="/admin/docs">
             <el-icon><Document /></el-icon>
             <span>文档列表</span>

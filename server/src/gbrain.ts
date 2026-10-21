@@ -167,3 +167,67 @@ export async function listGBrain(config: AppConfig): Promise<GBrainPage[]> {
     })
     .filter((p) => p.slug)
 }
+
+export interface GBrainStats {
+  pageCount: number
+  chunkCount: number
+  embeddedCount: number
+  linkCount: number
+  tagCount: number
+  timelineCount: number
+  byType: Record<string, number>
+}
+
+/** gbrain stats --json → 库状态汇总 */
+export async function gbrainStats(config: AppConfig): Promise<GBrainStats> {
+  const raw = await runGBrain(config, ['stats', '--json'])
+  let j: Record<string, unknown> = {}
+  try {
+    j = JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return { pageCount: 0, chunkCount: 0, embeddedCount: 0, linkCount: 0, tagCount: 0, timelineCount: 0, byType: {} }
+  }
+  const n = (k: string) => Number(j[k] ?? 0) || 0
+  return {
+    pageCount: n('page_count'),
+    chunkCount: n('chunk_count'),
+    embeddedCount: n('embedded_count'),
+    linkCount: n('link_count'),
+    tagCount: n('tag_count'),
+    timelineCount: n('timeline_entry_count'),
+    byType: (j.pages_by_type as Record<string, number>) ?? {},
+  }
+}
+
+export interface GBrainPageFull {
+  slug: string
+  title: string
+  type: string
+  updatedAt: string | null
+  sourceId: string
+}
+
+/** gbrain list --json → 带类型和更新时间的完整清单 */
+export async function listGBrainFull(config: AppConfig): Promise<GBrainPageFull[]> {
+  const raw = await runGBrain(config, ['list', '--limit', '1000', '--json'], Math.max(config.gbrain.timeoutMs, 120000))
+  try {
+    const rows = JSON.parse(raw) as { slug?: string; title?: string; type?: string; updated_at?: string; source_id?: string }[]
+    return rows
+      .filter((r) => r.slug)
+      .map((r) => ({
+        slug: String(r.slug),
+        title: String(r.title ?? r.slug),
+        type: String(r.type ?? 'page'),
+        updatedAt: r.updated_at ? String(r.updated_at) : null,
+        sourceId: String(r.source_id ?? 'default'),
+      }))
+  } catch {
+    const plain = await listGBrain(config)
+    return plain.map((p) => ({ slug: p.slug, title: p.title, type: 'page', updatedAt: null, sourceId: 'default' }))
+  }
+}
+
+/** 删一个页（硬删：行 + 分块 + 磁盘 md 一起） */
+export async function deleteGBrainPage(config: AppConfig, slug: string): Promise<void> {
+  await runGBrain(config, ['delete', slug, '--force', '--purge'], Math.max(config.gbrain.timeoutMs, 120000))
+}
