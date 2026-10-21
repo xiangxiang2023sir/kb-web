@@ -1232,6 +1232,98 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   )
 
 
+  // ================= 项目管理（成员表=唯一权限来源）=================
+  app.get('/api/admin/projects', requireAdmin, (_req, res) => {
+    const rows = db.listProjects().map((p) => {
+      const members = db.projectMembers(p.id)
+      return {
+        ...p,
+        memberCount: members.length,
+        leads: members.filter((m) => m.role === 'lead').map((m) => m.name),
+      }
+    })
+    res.json(rows)
+  })
+
+  app.post(
+    '/api/admin/projects',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const id = String(req.body?.id ?? '').trim()
+      const name = String(req.body?.name ?? '').trim()
+      const note = req.body?.note == null ? null : String(req.body.note).trim()
+      if (!/^[a-z0-9][a-z0-9-]{1,31}$/.test(id)) throw new HttpError(400, '项目 id 只能是小写字母/数字/连字符，2~32 位')
+      if (!name) throw new HttpError(400, '项目名称必填')
+      if (db.projectById(id)) throw new HttpError(409, '这个项目 id 已存在')
+      db.insertProject({ id, name, note })
+      audit(userOf(res)!.name, 'project.create', id, { name })
+      res.json({ ok: true, id })
+    }),
+  )
+
+  app.patch(
+    '/api/admin/projects/:id',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const id = String(req.params.id)
+      if (!db.projectById(id)) throw new HttpError(404, '项目不存在')
+      const patch: { name?: string; status?: string; note?: string | null } = {}
+      if (req.body?.name !== undefined) patch.name = String(req.body.name).trim()
+      if (req.body?.note !== undefined) patch.note = req.body.note == null ? null : String(req.body.note)
+      if (req.body?.status !== undefined) {
+        const st = String(req.body.status)
+        if (st !== 'active' && st !== 'archived') throw new HttpError(400, '状态只能是 active / archived')
+        patch.status = st
+      }
+      db.updateProject(id, patch)
+      audit(userOf(res)!.name, 'project.update', id, patch)
+      res.json({ ok: true })
+    }),
+  )
+
+  app.get('/api/admin/projects/:id/members', requireAdmin, (req, res) => {
+    if (!db.projectById(String(req.params.id))) throw new HttpError(404, '项目不存在')
+    res.json(db.projectMembers(String(req.params.id)))
+  })
+
+  app.post(
+    '/api/admin/projects/:id/members',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const projectId = String(req.params.id)
+      if (!db.projectById(projectId)) throw new HttpError(404, '项目不存在')
+      const userId = String(req.body?.userId ?? req.body?.user_id ?? '').trim()
+      const role = String(req.body?.role ?? 'member')
+      if (!userId) throw new HttpError(400, 'userId 必填')
+      if (role !== 'lead' && role !== 'member') throw new HttpError(400, '角色只能是 lead / member')
+      if (!db.findUserById(userId)) throw new HttpError(404, '用户不存在')
+      db.addProjectMember(projectId, userId, role)
+      audit(userOf(res)!.name, 'project.member.add', `${projectId}:${userId}`, { role })
+      res.json({ ok: true })
+    }),
+  )
+
+  app.delete('/api/admin/projects/:id/members/:userId', requireAdmin, (req, res) => {
+    const projectId = String(req.params.id)
+    const userId = String(req.params.userId)
+    db.removeProjectMember(projectId, userId)
+    audit(userOf(res)!.name, 'project.member.remove', `${projectId}:${userId}`)
+    res.json({ ok: true })
+  })
+
+  // 我参与的项目（供前端下拉）
+  app.get('/api/projects/mine', requireUser, (_req, res) => {
+    const me = userOf(res)!
+    const ids = me.role === 'owner' ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id) : db.projectsOfUser(me.id)
+    res.json(
+      ids.map((id) => {
+        const p = db.projectById(id)
+        return { id, name: p?.name ?? id, role: db.projectRoleOf(id, me.id) ?? (me.role === 'owner' ? 'lead' : null) }
+      }),
+    )
+  })
+
+
   app.use('/api', (_req, res) => {
     res.status(404).json({ message: '未实现' })
   })

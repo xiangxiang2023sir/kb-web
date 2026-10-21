@@ -1,4 +1,4 @@
-import type { Field, Sensitivity, User } from './config.js'
+import type { Field, Role, Sensitivity, User } from './config.js'
 
 const SLUG = /^(electrical|dispatch|mechanical)\/(public|internal|confidential|top_secret)\/.+/
 
@@ -28,4 +28,21 @@ export function assertCanConfirm(user: User, sensitivity: Sensitivity) {
     err.status = 403
     throw err
   }
+}
+
+export type ProjectRole = 'lead' | 'member'
+
+/**
+ * 项目内的密级可见性：
+ * 非成员 → 仅 public；成员 → public/internal；项目负责人 → +confidential；系统主人 → 全部
+ */
+export function canSeeInProject(
+  systemRole: Role,
+  projectRole: ProjectRole | null,
+  sensitivity: Sensitivity,
+): boolean {
+  if (systemRole === 'owner') return true
+  if (!projectRole) return sensitivity === 'public'
+  if (projectRole === 'member') return sensitivity === 'public' || sensitivity === 'internal'
+  return sensitivity === 'public' || sensitivity === 'internal' || sensitivity === 'confidential'
 }

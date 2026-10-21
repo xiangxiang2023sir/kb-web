@@ -537,6 +537,92 @@ export class KbDb {
     }))
   }
 
+  // ---- 项目 / 项目成员（唯一权限来源）----
+
+  insertProject(row: { id: string; name: string; note?: string | null }) {
+    this.run(
+      `INSERT INTO projects (id, name, status, note, created_at) VALUES (?, ?, 'active', ?, ?)`,
+      row.id,
+      row.name,
+      row.note ?? null,
+      new Date().toISOString(),
+    )
+  }
+
+  listProjects() {
+    return this.many(`SELECT id, name, status, note, created_at FROM projects ORDER BY status, id`).map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      status: String(r.status),
+      note: r.note == null ? null : String(r.note),
+      createdAt: String(r.created_at),
+    }))
+  }
+
+  projectById(id: string) {
+    const r = this.one(`SELECT id, name, status, note, created_at FROM projects WHERE id = ?`, id)
+    return r
+      ? {
+          id: String(r.id),
+          name: String(r.name),
+          status: String(r.status),
+          note: r.note == null ? null : String(r.note),
+          createdAt: String(r.created_at),
+        }
+      : null
+  }
+
+  updateProject(id: string, patch: { name?: string; status?: string; note?: string | null }) {
+    if (patch.name !== undefined) this.run(`UPDATE projects SET name = ? WHERE id = ?`, patch.name, id)
+    if (patch.status !== undefined) this.run(`UPDATE projects SET status = ? WHERE id = ?`, patch.status, id)
+    if (patch.note !== undefined) this.run(`UPDATE projects SET note = ? WHERE id = ?`, patch.note, id)
+  }
+
+  addProjectMember(projectId: string, userId: string, role: 'lead' | 'member') {
+    this.run(
+      `INSERT INTO project_members (project_id, user_id, role, added_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role`,
+      projectId,
+      userId,
+      role,
+      new Date().toISOString(),
+    )
+  }
+
+  removeProjectMember(projectId: string, userId: string) {
+    this.run(`DELETE FROM project_members WHERE project_id = ? AND user_id = ?`, projectId, userId)
+  }
+
+  projectMembers(projectId: string) {
+    return this.many(
+      `SELECT m.user_id, m.role, m.added_at, u.name, u.role AS user_role
+       FROM project_members m LEFT JOIN users u ON u.id = m.user_id
+       WHERE m.project_id = ? ORDER BY m.role, u.name`,
+      projectId,
+    ).map((r) => ({
+      userId: String(r.user_id),
+      name: r.name == null ? String(r.user_id) : String(r.name),
+      role: String(r.role),
+      addedAt: String(r.added_at),
+    }))
+  }
+
+  /** 某人在某个项目里的角色（不在项目里返回 null） */
+  projectRoleOf(projectId: string, userId: string): 'lead' | 'member' | null {
+    const r = this.one(`SELECT role FROM project_members WHERE project_id = ? AND user_id = ?`, projectId, userId)
+    if (!r) return null
+    return String(r.role) === 'lead' ? 'lead' : 'member'
+  }
+
+  /** 某人参与的 active 项目 id 列表 */
+  projectsOfUser(userId: string): string[] {
+    return this.many(
+      `SELECT p.id FROM project_members m JOIN projects p ON p.id = m.project_id
+       WHERE m.user_id = ? AND p.status = 'active' ORDER BY p.id`,
+      userId,
+    ).map((r) => String(r.id))
+  }
+
   /** 删一条文档登记（只删登记表，不动 GBrain） */
   deleteDoc(id: string) {
     this.run(`DELETE FROM docs WHERE id = ?`, id)
@@ -831,6 +917,22 @@ CREATE TABLE IF NOT EXISTS health_issues (
   detail TEXT NOT NULL,
   ran_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  added_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS bind_codes (
   code TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -883,6 +985,17 @@ for (const [col, ddl] of [
   ['apply_note', 'ALTER TABLE users ADD COLUMN apply_note TEXT'],
 ] as const) {
   if (!userCols.has(col)) db.exec(ddl)
+}
+
+// docs / questions 加 project_id（NULL = 公共/全局）
+for (const [table, col] of [
+  ['docs', 'project_id'],
+  ['questions', 'project_id'],
+] as const) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => String(c.name)),
+  )
+  if (!cols.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`)
 }
 
 const sessionCols = new Set(
