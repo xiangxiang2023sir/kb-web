@@ -317,11 +317,14 @@ export class KbDb {
     updatedAt: string
     sourcePath?: string
     projectId?: string | null
+    submittedBy?: string | null
+    submittedVia?: string | null
+    submitterAgent?: string | null
   }) {
     this.run(
       `INSERT INTO docs
-        (id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, content, updated_at, source_path, project_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, content, updated_at, source_path, project_id, submitted_by, submitted_via, submitter_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       row.id,
       row.title,
       row.field,
@@ -333,10 +336,13 @@ export class KbDb {
       row.updatedAt,
       row.sourcePath ?? null,
       row.projectId ?? null,
+      row.submittedBy ?? null,
+      row.submittedVia ?? null,
+      row.submitterAgent ?? null,
     )
   }
 
-  listDocs(filter: { keyword?: string; field?: string; sensitivity?: string; status?: string; hideTopSecret: boolean; project?: string }) {
+  listDocs(filter: { keyword?: string; field?: string; sensitivity?: string; status?: string; hideTopSecret: boolean; project?: string; submittedBy?: string; via?: string }) {
     const where: string[] = []
     const args: unknown[] = []
     if (filter.keyword) {
@@ -355,12 +361,20 @@ export class KbDb {
       where.push(`project_id = ?`)
       args.push(filter.project)
     }
+    if (filter.submittedBy) {
+      where.push(`submitted_by = ?`)
+      args.push(filter.submittedBy)
+    }
+    if (filter.via) {
+      where.push(`submitted_via = ?`)
+      args.push(filter.via)
+    }
     if (filter.status) {
       where.push(`status = ?`)
       args.push(filter.status)
     }
     if (filter.hideTopSecret) where.push(`sensitivity != 'top_secret'`)
-    const sql = `SELECT id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, updated_at, slug, reject_reason
+    const sql = `SELECT id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, updated_at, slug, reject_reason, project_id, submitted_by, submitted_via, submitter_agent
       FROM docs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC`
     return this.many(sql, ...args).map(docItem)
   }
@@ -823,6 +837,9 @@ function count(db: KbDb, sql: string): number {
 function docItem(r: Row) {
   return {
     projectId: r.project_id == null ? null : String(r.project_id),
+    submittedBy: r.submitted_by == null ? null : String(r.submitted_by),
+    submittedVia: r.submitted_via == null ? null : String(r.submitted_via),
+    submitterAgent: r.submitter_agent == null ? null : String(r.submitter_agent),
     id: String(r.id),
     title: String(r.title),
     field: r.field as Field,
@@ -997,6 +1014,21 @@ for (const [col, ddl] of [
   ['apply_note', 'ALTER TABLE users ADD COLUMN apply_note TEXT'],
 ] as const) {
   if (!userCols.has(col)) db.exec(ddl)
+}
+
+// docs 加提交人信息（回查用）：submitted_by / submitted_via / submitter_agent
+{
+  const cols = new Set(
+    (db.prepare('PRAGMA table_info(docs)').all() as { name: string }[]).map((c) => String(c.name)),
+  )
+  for (const [col, ddl] of [
+    ['submitted_by', 'ALTER TABLE docs ADD COLUMN submitted_by TEXT'],
+    ['submitted_via', 'ALTER TABLE docs ADD COLUMN submitted_via TEXT'],
+    ['submitter_agent', 'ALTER TABLE docs ADD COLUMN submitter_agent TEXT'],
+  ] as const) {
+    if (!cols.has(col)) db.exec(ddl)
+  }
+  db.exec(`UPDATE docs SET submitted_via = 'legacy' WHERE submitted_via IS NULL`)
 }
 
 // docs / questions 加 project_id（NULL = 公共/全局）

@@ -17,6 +17,16 @@ function openDetail(row: DocItem) {
 const isOwner = () => auth.user?.role === 'owner'
 
 const list = ref<DocItem[]>([])
+const users = ref<{ id: string; name: string }[]>([])
+function nameOf(id?: string | null) {
+  if (!id) return '—'
+  return users.value.find((u) => u.id === id)?.name || String(id).slice(0, 8)
+}
+function viaLabel(v?: string | null) {
+  const map: Record<string, string> = { upload: '上传', chat: '对话', agent: 'agent', feishu: '飞书', legacy: '历史' }
+  return v ? map[v] || v : '—'
+}
+
 const loading = ref(false)
 
 async function load() {
@@ -88,6 +98,12 @@ async function doReject(row: DocItem) {
       <el-table-column label="标题" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">
           <el-link type="primary" :underline="true" @click="openDetail(row)">{{ row.title }}</el-link>
+        </template>
+      </el-table-column>
+      <el-table-column label="提交人" width="160">
+        <template #default="{ row }">
+          <span>{{ nameOf(row.submittedBy) }}</span>
+          <el-tag size="small" type="info" style="margin-left: 4px">{{ viaLabel(row.submittedVia) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="领域（可改）" width="150">

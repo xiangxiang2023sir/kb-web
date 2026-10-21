@@ -412,6 +412,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         sensitivity,
         status: 'pending',
         projectId: capProject,
+        submittedBy: user.id,
+        submittedVia: 'chat',
         suggestedField: field,
         suggestedSensitivity: sensitivity,
         content: body,
@@ -560,6 +562,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       sensitivity: req.query.sensitivity ? String(req.query.sensitivity) : undefined,
       status: req.query.status ? String(req.query.status) : undefined,
       project: req.query.project ? String(req.query.project) : undefined,
+      submittedBy: req.query.submittedBy ? String(req.query.submittedBy) : undefined,
+      via: req.query.via ? String(req.query.via) : undefined,
       hideTopSecret: user.role !== 'owner',
     })
     res.json({ list: list.slice((page - 1) * size, page * size).map(({ slug: _s, ...item }) => item), total: list.length })
@@ -653,6 +657,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         sensitivity: suggestedSensitivity,
         status: 'pending',
         projectId: suggestProjectId(`${title} ${text}`),
+        submittedBy: userOf(res)!.id,
+        submittedVia: 'upload',
         suggestedField,
         suggestedSensitivity,
         content: text,
@@ -686,7 +692,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         db.updateDocProject(doc.id, null)
       }
       const slug = `${field}/${sensitivity}/${asciiSlug(doc.title, doc.id)}`
-      const markdown = toMarkdown(doc.title, field, sensitivity, doc.content, originNameOf(dataDir, doc.sourcePath))
+      const markdown = toMarkdown(doc.title, field, sensitivity, doc.content, originNameOf(dataDir, doc.sourcePath), {
+        author: doc.submittedBy,
+        via: doc.submittedVia,
+        project: projectId,
+      })
       const corpus = join(dataDir, 'corpus', `${slug}.md`)
       mkdirSync(dirname(corpus), { recursive: true })
       writeFileSync(corpus, markdown, 'utf8')
@@ -1049,6 +1059,9 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         sensitivity,
         status: 'pending',
         projectId: capProject,
+        submittedBy: capUser.id,
+        submittedVia: 'agent',
+        submitterAgent: agent,
         suggestedField: field,
         suggestedSensitivity: sensitivity,
         content: `${content}\n\n---\n\n- 来源：agent 写入（${agent}）\n- 时间：${new Date().toISOString()}${similarNote}`,

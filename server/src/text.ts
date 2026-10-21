@@ -109,11 +109,20 @@ export function toMarkdown(
   sensitivity: Sensitivity,
   body: string,
   originName?: string,
+  meta?: { author?: string | null; via?: string | null; project?: string | null },
 ): string {
   const safeTitle = title.replace(/"/g, '\\"')
   // 原件留在服务器上（data/inbox），页面里登记文件名，检索时能顺藤摸到原件
   const origin = originName ? `\n---\n\n> **原件**：${originName}（kb-web 上传，原件保存在服务器 data/inbox/）\n` : ''
-  return `---\ntitle: "${safeTitle}"\ntype: note\ntags:\n  - ${field}\n  - ${sensitivity}\n---\n\n${body.trim()}\n${origin}`
+  const metaLines = [
+    meta?.author ? `author: "${meta.author}"` : '',
+    meta?.via ? `submitted_via: "${meta.via}"` : '',
+    meta?.project ? `project: "${meta.project}"` : '',
+    `submitted_at: "${new Date().toISOString()}"`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return `---\ntitle: "${safeTitle}"\ntype: note\ntags:\n  - ${field}\n  - ${sensitivity}\n${metaLines}\n---\n\n${body.trim()}\n${origin}`
 }
 
 /**

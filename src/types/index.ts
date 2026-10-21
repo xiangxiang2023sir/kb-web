@@ -129,6 +129,9 @@ export interface DocItem {
   suggestedSensitivity?: Sensitivity
   /** 被驳回时，驳回原因（谁驳的看不到，只存原因） */
   rejectReason?: string
+  submittedBy?: string | null
+  submittedVia?: string | null
+  submitterAgent?: string | null
 }
 
 export interface DocDetail extends DocItem {

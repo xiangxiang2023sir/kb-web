@@ -156,6 +156,8 @@ export async function handleFeishuEvent(
       field,
       sensitivity: 'internal',
       status: 'pending',
+      submittedBy: user.id,
+      submittedVia: 'feishu',
       suggestedField: field,
       suggestedSensitivity: 'internal',
       content: `${body}\n\n---\n\n- 来源：飞书（${user.name}）\n- 时间：${new Date().toISOString()}`,
