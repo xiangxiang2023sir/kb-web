@@ -77,7 +77,8 @@ async function logout() {
           </el-menu-item>
           <el-menu-item index="/admin/docs">
             <el-icon><Document /></el-icon>
-            <el-badge :value="badge.pendingDocs" :hidden="!badge.pendingDocs" :max="99" class="menu-badge"><span>文档列表</span></el-badge>
+            <span>文档列表</span>
+            <span v-if="badge.pendingDocs" class="mini-badge">{{ badge.pendingDocs > 99 ? '99+' : badge.pendingDocs }}</span>
           </el-menu-item>
           <el-menu-item index="/admin/docs/upload">
             <el-icon><UploadFilled /></el-icon>
@@ -86,11 +87,13 @@ async function logout() {
         </el-menu-item-group>
         <el-menu-item index="/admin/health">
           <el-icon><CircleCheck /></el-icon>
-          <el-badge :value="badge.failedChecks" :hidden="!badge.failedChecks" :max="99" class="menu-badge"><span>健康检查</span></el-badge>
+          <span>健康检查</span>
+            <span v-if="badge.failedChecks" class="mini-badge">{{ badge.failedChecks > 99 ? '99+' : badge.failedChecks }}</span>
         </el-menu-item>
         <el-menu-item index="/admin/questions">
           <el-icon><QuestionFilled /></el-icon>
-          <el-badge :value="badge.unassignedQuestions" :hidden="!badge.unassignedQuestions" :max="99" class="menu-badge"><span>问题队列</span></el-badge>
+          <span>问题队列</span>
+            <span v-if="badge.unassignedQuestions" class="mini-badge">{{ badge.unassignedQuestions > 99 ? '99+' : badge.unassignedQuestions }}</span>
         </el-menu-item>
         <el-menu-item index="/admin/assistant">
           <el-icon><ChatLineRound /></el-icon>
@@ -119,12 +122,18 @@ async function logout() {
 </template>
 
 <style scoped>
-.menu-badge {
-  margin-left: 6px;
-}
-.menu-badge :deep(.el-badge__content) {
-  position: static;
-  transform: none;
-  margin-left: 4px;
+.mini-badge {
+  margin-left: auto;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+  box-sizing: border-box;
 }
 </style>
