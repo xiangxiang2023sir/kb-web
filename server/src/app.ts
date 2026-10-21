@@ -24,6 +24,7 @@ import { runHealth } from './health.js'
 import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
 import { bearerOf } from './agentTokens.js'
 import { buildAgentSkillMarkdown } from './agentSkill.js'
+import { prepareIntake } from './intake.js'
 import { classifyText } from './llm.js'
 import {
   challengeOf,
@@ -995,6 +996,59 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     if (!caller) throw new HttpError(401, 'token 无效')
     return caller.user
   }
+  // agent 入库前先整理（只整理不落库）：agent 把结果发给用户确认后再调 /api/agent/capture
+  app.post(
+    '/api/agent/prepare-capture',
+    asyncRoute(async (req, res) => {
+      const caller = callerOf(req)
+      if (!caller) throw new HttpError(401, 'token 无效')
+      const user = agentUserOf(req)
+      if (hitRate(`prepare:${user.id}`, 10)) throw new HttpError(429, '整理过于频繁（每分钟 10 次）')
+      const raw = String(req.body?.raw ?? req.body?.content ?? '').trim()
+      if (!raw) throw new HttpError(400, 'raw 必填（用户原话）')
+      if (raw.length > 20000) throw new HttpError(413, '内容过大（上限 20000 字）')
+      const draft = await prepareIntake(config, raw, {
+        field: isField(req.body?.field) ? req.body.field : null,
+        sensitivity: isSensitivity(req.body?.sensitivity) ? req.body.sensitivity : 'internal',
+      })
+      // 项目：传了就校验成员，没传就按内容猜（只做建议）
+      let project: string | null = null
+      const pid = String(req.body?.project ?? '').trim()
+      if (pid) {
+        const pj = db.projectById(pid)
+        if (!pj) throw new HttpError(400, `项目 ${pid} 不存在`)
+        if (pj.status !== 'active') throw new HttpError(400, `项目 ${pid} 已归档`)
+        const role = db.projectRoleOf(pid, user.id)
+        if (!role && user.role !== 'owner') throw new HttpError(403, `你不是项目 ${pid} 的成员`)
+        project = pid
+      } else {
+        project = suggestProjectId(`${draft.title} ${draft.content}`)
+      }
+      // 可能重复的页（只给公开/内部，避免泄露绝密标题）
+      let similar: { slug: string; title: string }[] = []
+      try {
+        const hits = await searchGBrainMulti(config, draft.title, 5, 0, ['default', ...db.projectsOfUser(user.id)])
+        similar = hits
+          .filter((h) => !/\/top_secret\//.test(String(h.slug)))
+          .map((h) => ({ slug: String(h.slug), title: String((h as { title?: string }).title ?? h.slug) }))
+      } catch {
+        similar = []
+      }
+      res.json({
+        ok: true,
+        draft: {
+          title: draft.title,
+          content: draft.content,
+          field: draft.field ?? config.defaults.field,
+          sensitivity: draft.sensitivity ?? 'internal',
+          project,
+        },
+        similar,
+        next: '把 draft 原样发给用户确认；用户同意后再调 POST /api/agent/capture（title/content/kind/field/project）',
+      })
+    }),
+  )
+
   app.post(
     '/api/agent/capture',
     asyncRoute(async (req, res) => {
