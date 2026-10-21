@@ -84,14 +84,18 @@ watch(
 /** 入库触发词：「入库 xxx」「xxx 入库」「记一下 xxx」「存一下 xxx」 */
 const INTAKE_RE = /^(请?帮我)?(入库|记一下|记录一下|存一下|存起来)[:：\s]*|[，,\s]*(入库|存起来)[。！!]?$/
 
-// ---- 入库：先整理再确认 ----
-const intakeVisible = ref(false)
+// ---- 入库：先整理，结果做成对话里的卡片（不弹窗） ----
+interface IntakeCard {
+  id: string
+  draft: { title: string; content: string; field: string; sensitivity: string }
+  similar: { slug: string; title: string }[]
+  project: string
+  status: 'draft' | 'submitted'
+}
 const intakeLoading = ref(false)
 const intakeSaving = ref(false)
-const intakeDraft = ref<{ title: string; content: string; field: string; sensitivity: string; project: string | null } | null>(null)
-const intakeSimilar = ref<{ slug: string; title: string }[]>([])
+const intakeCards = ref<IntakeCard[]>([])
 const intakeProjects = ref<{ id: string; name: string }[]>([])
-const intakeProject = ref('')
 
 async function prepareIntake(raw: string): Promise<boolean> {
   intakeLoading.value = true
@@ -99,10 +103,13 @@ async function prepareIntake(raw: string): Promise<boolean> {
   try {
     if (!intakeProjects.value.length) intakeProjects.value = await projectsApi.mine().catch(() => [])
     const r = await intakeApi.prepare(raw)
-    intakeDraft.value = r.draft
-    intakeSimilar.value = r.similar || []
-    intakeProject.value = r.draft.project || ''
-    intakeVisible.value = true
+    intakeCards.value.push({
+      id: `ic-${Date.now()}`,
+      draft: r.draft,
+      similar: r.similar || [],
+      project: r.draft.project || '',
+      status: 'draft',
+    })
     return true
   } catch (e) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '整理失败，已按普通提问发出'
@@ -114,27 +121,34 @@ async function prepareIntake(raw: string): Promise<boolean> {
   }
 }
 
-async function submitIntake() {
-  if (!intakeDraft.value) return
+async function submitIntake(card: IntakeCard) {
   intakeSaving.value = true
   try {
     await intakeApi.save({
-      title: intakeDraft.value.title,
-      content: intakeDraft.value.content,
-      field: intakeDraft.value.field,
-      sensitivity: intakeDraft.value.sensitivity,
-      project: intakeProject.value || null,
+      title: card.draft.title,
+      content: card.draft.content,
+      field: card.draft.field,
+      sensitivity: card.draft.sensitivity,
+      project: card.project || null,
       sessionId: chat.sessionId || undefined,
     })
+    card.status = 'submitted'
     ElMessage.success('已提交，进「待确认」等审核')
-    intakeVisible.value = false
-    intakeDraft.value = null
   } catch (e) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '提交失败'
     ElMessage.error(msg)
   } finally {
     intakeSaving.value = false
   }
+}
+
+function editIntake(card: IntakeCard) {
+  draft.value = `入库 ${card.draft.content.replace(/\n\n---\n\n### 原始表述[\s\S]*$/, '').trim()}`
+  dropIntake(card)
+}
+
+function dropIntake(card: IntakeCard) {
+  intakeCards.value = intakeCards.value.filter((c) => c.id !== card.id)
 }
 
 async function send() {
@@ -288,6 +302,33 @@ function retry(m: ChatMessage) {
           </template>
         </div>
       </div>
+      <!-- 入库卡片：插在消息流末尾，不弹窗 -->
+      <div v-for="card in intakeCards" :key="card.id" class="msg-row assistant">
+        <div class="intake-card">
+          <div class="intake-head">
+            <el-icon><Files /></el-icon>
+            <span>入库预览（会先进「待确认」）</span>
+            <el-tag v-if="card.status === 'submitted'" size="small" type="success" style="margin-left: auto">已进待确认</el-tag>
+          </div>
+          <div class="intake-title">{{ card.draft.title }}</div>
+          <div class="intake-meta">
+            <el-tag size="small">{{ card.draft.field }}</el-tag>
+            <el-tag size="small" type="info">{{ card.draft.sensitivity }}</el-tag>
+            <el-select v-model="card.project" placeholder="归属项目（不选=公共库）" clearable size="small" style="width: 190px" :disabled="card.status === 'submitted'">
+              <el-option v-for="pj in intakeProjects" :key="pj.id" :label="pj.name" :value="pj.id" />
+            </el-select>
+          </div>
+          <div v-if="card.similar.length" class="intake-warn">
+            可能重复：<span v-for="s in card.similar" :key="s.slug" class="dup">{{ s.title }}</span>
+          </div>
+          <div class="intake-body" v-html="renderMd(card.draft.content)" />
+          <div v-if="card.status === 'draft'" class="intake-actions">
+            <el-button size="small" type="primary" :loading="intakeSaving" @click="submitIntake(card)">确认入库</el-button>
+            <el-button size="small" @click="editIntake(card)">改一下</el-button>
+            <el-button size="small" text @click="dropIntake(card)">算了</el-button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-if="!readOnly" class="chat-input-area">
@@ -323,27 +364,6 @@ function retry(m: ChatMessage) {
       </div>
     </div>
   </div>
-    <!-- 入库预览：先整理再确认 -->
-    <el-dialog v-model="intakeVisible" title="确认入库（会先进「待确认」）" width="640px" top="6vh">
-      <div v-if="intakeDraft">
-        <div class="intake-title">{{ intakeDraft.title }}</div>
-        <div class="intake-meta">
-          <el-tag size="small">{{ intakeDraft.field }}</el-tag>
-          <el-tag size="small" type="info">{{ intakeDraft.sensitivity }}</el-tag>
-          <el-select v-model="intakeProject" placeholder="归属项目（不选=公共库）" clearable size="small" style="width: 200px">
-            <el-option v-for="p in intakeProjects" :key="p.id" :label="p.name" :value="p.id" />
-          </el-select>
-        </div>
-        <div v-if="intakeSimilar.length" class="intake-warn">
-          可能重复：<span v-for="s in intakeSimilar" :key="s.slug" class="dup">{{ s.title }}</span>
-        </div>
-        <div class="intake-body" v-html="renderMd(intakeDraft.content)" />
-      </div>
-      <template #footer>
-        <el-button @click="intakeVisible = false">取消</el-button>
-        <el-button type="primary" :loading="intakeSaving" @click="submitIntake">提交待确认</el-button>
-      </template>
-    </el-dialog>
 </template>
 
 <style scoped>
@@ -590,8 +610,31 @@ function retry(m: ChatMessage) {
 </style>
 
 <style scoped>
+.intake-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-left: 3px solid #409eff;
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-width: 720px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+.intake-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+.intake-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
 .intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .intake-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.intake-card .intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .intake-warn { font-size: 12px; color: #e6a23c; margin-bottom: 8px; }
 .intake-warn .dup { margin-right: 8px; text-decoration: underline; }
 .intake-body {
