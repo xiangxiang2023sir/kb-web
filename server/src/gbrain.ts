@@ -21,6 +21,7 @@ export function runGBrain(config: AppConfig, args: string[], timeoutMs = config.
   const full = [...config.gbrain.argsPrefix, ...args]
   return new Promise((resolve, reject) => {
     let child
+    if (process.env.KB_DEBUG_GBRAIN === '1') console.error(`[gb] RUN ${command} ${full.join(' ').slice(0, 400)}`)
     try {
       child = spawn(command, full, { shell: false, windowsHide: true })
     } catch (err) {
@@ -56,6 +57,10 @@ export function runGBrain(config: AppConfig, args: string[], timeoutMs = config.
     })
     child.on('close', (code) => {
       const stdout = Buffer.concat(out).toString('utf8')
+      if (process.env.KB_DEBUG_GBRAIN === '1') {
+        const j = full[0] === 'search' ? stdout.slice(0, 400) : ''
+        console.error(`[gb] DONE code=${code} len=${stdout.length} ${j ? 'head=' + j.replace(/\s+/g, ' ') : ''}`)
+      }
       const stderr = Buffer.concat(err).toString('utf8').trim()
       if (code !== 0) {
         // GBrain 出错时有时把 JSON 错误写在 stdout、stderr 为空，尽量取出 message
@@ -101,6 +106,10 @@ export async function searchGBrain(
   const stdout = await runGBrain(config, ['search', query, '--limit', String(limit), '--offset', String(offset), '--json', ...(sourceId ? ['--source-id', sourceId] : [])])
   const parsed = parseJson(stdout)
   const rows = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { results?: unknown })?.results) ? (parsed as { results: unknown[] }).results : []
+  if (process.env.KB_DEBUG_GBRAIN === '1') {
+    const sl = (rows as Record<string, unknown>[]).slice(0, 4).map((r) => `${Number(r.score ?? 0).toFixed(3)}:${String(r.slug ?? '').slice(-40)}`)
+    console.error(`[gb] SRC=${sourceId ?? '-'} rows=${rows.length} q="${query.slice(0, 30)}" top=${sl.join(' , ')}`)
+  }
   return rows
     .map((row) => {
       const r = row as Record<string, unknown>
