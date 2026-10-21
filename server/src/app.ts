@@ -832,6 +832,17 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!title || !answer) throw new HttpError(400, '请填写知识标题和解答')
       if (!isField(field) || !isSensitivity(sensitivity)) throw new HttpError(400, '领域或密级不正确')
       assertCanConfirm(userOf(res)!, sensitivity)
+      // 归属项目：传了就校验（存在/未归档/是成员），不传进公共库
+      let qProject: string | null = null
+      const qPid = String(req.body?.project ?? '').trim()
+      if (qPid) {
+        const pj = db.projectById(qPid)
+        if (!pj) throw new HttpError(400, `项目 ${qPid} 不存在`)
+        if (pj.status !== 'active') throw new HttpError(400, `项目 ${qPid} 已归档`)
+        const role = db.projectRoleOf(qPid, userOf(res)!.id)
+        if (!role && userOf(res)!.role !== 'owner') throw new HttpError(403, `你不是项目 ${qPid} 的成员`)
+        qProject = qPid
+      }
       db.resolveQuestion(question.id)
       const suggested = guessField(`${title}\n${answer}`, config)
       db.insertDoc({
@@ -840,6 +851,10 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         field,
         sensitivity,
         status: 'pending',
+        projectId: qProject,
+        submittedBy: userOf(res)!.id,
+        submittedVia: 'question',
+        submitterAgent: null,
         suggestedField: suggested,
         suggestedSensitivity: guessSensitivity(answer, config),
         content: answer,

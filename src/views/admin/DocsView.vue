@@ -69,7 +69,7 @@ function nameOf(id?: string | null) {
   return users.value.find((u) => u.id === id)?.name || String(id).slice(0, 8)
 }
 function viaLabel(v?: string | null) {
-  const map: Record<string, string> = { upload: '上传', chat: '对话', agent: 'agent', feishu: '飞书', legacy: '历史' }
+  const map: Record<string, string> = { upload: '上传', chat: '对话', agent: 'agent', feishu: '飞书', question: '问题队列', legacy: '历史' }
   return v ? map[v] || v : '—'
 }
 

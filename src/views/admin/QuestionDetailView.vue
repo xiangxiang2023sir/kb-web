@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { adminApi } from '@/api/endpoints'
+import { adminApi, projectsApi } from '@/api/endpoints'
 import type { Field, QuestionDetail, Sensitivity } from '@/types'
 import { fieldLabels, formatTime, questionStatusLabels, sensitivityLabels } from '@/utils/labels'
 
@@ -11,15 +11,18 @@ const router = useRouter()
 
 const q = ref<QuestionDetail | null>(null)
 const saving = ref(false)
+const projects = ref<{ id: string; name: string }[]>([])
 
-const form = reactive<{ answer: string; title: string; field: Field; sensitivity: Sensitivity }>({
+const form = reactive<{ answer: string; title: string; field: Field; sensitivity: Sensitivity; project: string }>({
   answer: '',
   title: '',
   field: 'electrical',
   sensitivity: 'internal',
+  project: '',
 })
 
 onMounted(async () => {
+  projects.value = await projectsApi.mine().catch(() => [])
   try {
     q.value = await adminApi.question(String(route.params.id))
     form.title = q.value.question.slice(0, 30)
@@ -86,6 +89,11 @@ async function submit() {
           <el-option v-for="(label, v) in sensitivityLabels" :key="v" :label="label" :value="v" />
         </el-select>
       </el-form-item>
+        <el-form-item label="归属项目">
+          <el-select v-model="form.project" clearable placeholder="不选 = 公共库" style="width: 200px">
+            <el-option v-for="pj in projects" :key="pj.id" :label="pj.name" :value="pj.id" />
+          </el-select>
+        </el-form-item>
       <el-form-item label="解答">
         <el-input v-model="form.answer" type="textarea" :rows="8" placeholder="给出可复用的标准解答，入库后其他工程师也能检索到" />
       </el-form-item>
