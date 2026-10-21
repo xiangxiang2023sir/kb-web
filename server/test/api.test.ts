@@ -296,7 +296,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     })
     assert.equal(againApprove.status, 400)
 
-    const events = await ask(base, cookie, '空结果')
+    const events = await ask(base, cookie, 'zzz')
     assert.ok(events.some((e) => e.type === 'status' && e.phase === 'no_evidence'))
     assert.ok(events.some((e) => e.type === 'done'))
     assert.ok(events.some((e) => e.type === 'session' && typeof e.sessionId === 'string'))
@@ -390,7 +390,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const askNone = await fetch(`${base}/api/agent/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
-      body: JSON.stringify({ query: '空结果' }),
+      body: JSON.stringify({ query: 'zzz' }),
     })
     assert.equal(askNone.status, 200)
     const askBody = (await askNone.json()) as { answer: string; phase: string }
@@ -430,7 +430,7 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const agentFirst = await fetch(`${base}/api/agent/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${wangToken}` },
-      body: JSON.stringify({ query: '空结果' }),
+      body: JSON.stringify({ query: 'zzz' }),
     })
     assert.equal(agentFirst.status, 200)
     const agentFirstBody = (await agentFirst.json()) as { sessionId: string }
@@ -439,14 +439,14 @@ auth: { cookieName: kb_sid, ttlDays: 1 }
     const agentSecond = await fetch(`${base}/api/agent/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${wangToken}` },
-      body: JSON.stringify({ query: '空结果' }),
+      body: JSON.stringify({ query: 'zzz' }),
     })
     assert.equal((await agentSecond.json() as { sessionId: string }).sessionId, agentFirstBody.sessionId)
 
     const agentFresh = await fetch(`${base}/api/agent/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${wangToken}` },
-      body: JSON.stringify({ query: '空结果', new: true }),
+      body: JSON.stringify({ query: 'zzz', new: true }),
     })
     assert.notEqual((await agentFresh.json() as { sessionId: string }).sessionId, agentFirstBody.sessionId)
 

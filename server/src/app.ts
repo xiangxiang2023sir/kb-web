@@ -1273,11 +1273,16 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       let queuedId: string | null = null
       // 「答不上来」的判定：无资料阶段 / 没引用 / 答案里就是"没找到资料"那句话
       // 只有"答案开头就是在说没资料"才算答不上来（避免正常的"未提及"误判）
-      const head = String(out.answer ?? '').trim().slice(0, 80)
+      // 去掉 markdown 加粗/「结论：」这类前缀再判断
+      const head = String(out.answer ?? '')
+        .replace(/[*#>`]/g, '')
+        .replace(/^\s*(结论|答案|回答)\s*[:：]\s*/, '')
+        .trim()
+        .slice(0, 80)
       const noAnswer =
         out.phase === 'no_evidence' ||
         (out.citations ?? []).length === 0 ||
-        /^(资料未给出|知识库中没有|没有找到与该问题|资料中未提及|未找到相关|无法回答|暂无相关)/.test(head)
+        /^(?:本次|这次|该问题|这个问题)?\s*(?:资料未给出|资料中没有|知识库中没有|没有找到与该问题|资料中未提及|未找到相关|无法回答|暂无相关|资料不涉及)/.test(head)
       if (config.questions?.autoQueueFromAgent !== false && noAnswer) {
         const hours = Number(config.questions?.dedupeHours ?? 24)
         if (!db.recentQuestionExists(user.id, query, hours)) {

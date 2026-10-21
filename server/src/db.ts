@@ -772,7 +772,7 @@ export class KbDb {
   /** 同一个人 + 同一问题在 N 小时内是否已经入队过（防刷屏） */
   recentQuestionExists(askedById: string, question: string, hours = 24): boolean {
     const row = this.one(
-      `SELECT COUNT(*) AS n FROM questions WHERE asked_by_id = ? AND question = ? AND created_at > datetime('now', ?)`,
+      `SELECT COUNT(*) AS n FROM questions WHERE asked_by_id = ? AND question = ? AND replace(substr(created_at, 1, 19), 'T', ' ') > datetime('now', ?)`,
       askedById,
       question,
       `-${hours} hours`,

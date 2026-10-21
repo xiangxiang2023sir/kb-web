@@ -349,6 +349,38 @@ async function collectHits(
       if (candidates.length >= want) break
     }
   }
+  // 关键：query 是 searchTermsOf 产出的「空格连接的词串」，
+  // 整串丢给 gbrain 会被当成一个短语 → 中文必然 0 命中（2026-10-21 实测）
+  // ⇒ 候选不足时逐词单独检索，再按 slug 合并取最高分
+  if (candidates.length < want) {
+    const all = query.split(/\s+/).filter(Boolean)
+    // 型号/英文词优先，其次 2 字词（实测 3 字词常命不中）
+    const rank = (w: string) => (/[A-Za-z0-9]/.test(w) ? 0 : w.length === 2 ? 1 : 2)
+    const terms = [...all].sort((a, b) => rank(a) - rank(b)).slice(0, 8)
+    const results = await Promise.all(
+      terms.map((term) =>
+        searchGBrainMulti(config, term, config.search.fetchLimit, 0, sources ?? []).catch(() => [] as KeptHit[]),
+      ),
+    )
+    for (const row of results.flat()) {
+      const parsed = parseSlug(row.slug)
+      if (!parsed) continue
+      const visible =
+        projectRole === undefined
+          ? canSee(user, parsed.field, parsed.sensitivity)
+          : canSeeInProject(user.role, projectRole, parsed.sensitivity)
+      if (!visible) continue
+      if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) continue
+      const exists = candidates.find((c) => c.slug === row.slug)
+      if (exists) {
+        exists.score = Math.max(exists.score, row.score)
+        continue
+      }
+      candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
+    }
+    candidates.sort((a, b) => b.score - a.score)
+    if (candidates.length > want) candidates.length = want
+  }
   if (candidates.length === 0) return candidates
 
   await fillBodies(config, candidates, sources)

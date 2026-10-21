@@ -3,7 +3,7 @@ const cmd = args[0]
 
 if (cmd === 'search') {
   const query = args[1] ?? ''
-  if (query.includes('空结果')) {
+  if (query.includes('空结果') || query === 'zzz') {
     console.log('[]')
   } else if (query.includes('绝密')) {
     console.log(
