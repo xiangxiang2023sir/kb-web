@@ -31,6 +31,10 @@ export interface AppConfig {
     coverageWeight: number
     /** 每条资料送进模型的字数上限 */
     pageChars: number
+    /** 弱相关过滤：候选得分低于「头部得分 × 该比例」的丢掉（避免凑数引用） */
+    minRankRatio: number
+    /** 弱相关过滤：查询词在页面里的覆盖率下限（低于它视为跑题） */
+    minCoverage: number
   }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
@@ -126,6 +130,8 @@ export function loadConfig(): AppConfig {
       rerankCandidates: Number(raw.search?.rerankCandidates ?? 12),
       coverageWeight: Number(raw.search?.coverageWeight ?? 0.6),
       pageChars: Number(raw.search?.pageChars ?? 4000),
+      minRankRatio: Number(raw.search?.minRankRatio ?? 0.6),
+      minCoverage: Number(raw.search?.minCoverage ?? 0.4),
     },
     confidence: {
       highMin: Number(raw.confidence?.highMin ?? 0.03),

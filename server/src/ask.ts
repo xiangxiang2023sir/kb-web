@@ -316,7 +316,23 @@ async function collectHits(config: AppConfig, user: User, query: string, publicO
     hit.rank = hit.score / maxScore + config.search.coverageWeight * (covered / totalWeight)
   }
   candidates.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))
-  return candidates.slice(0, config.search.keep)
+  // 过滤弱相关：低于头部这个比例的候选不送进模型（避免凑数引用、答案跑题）
+  const top = candidates[0]?.rank ?? 0
+  const floor = top * config.search.minRankRatio
+  const topScore = candidates[0]?.score ?? 0
+  const coverageOf = (hit: KeptHit) => {
+    const text = hit.body || hit.chunkText
+    const covered = terms.reduce((sum, term) => (text.includes(term) ? sum + weightOf(term) : sum), 0)
+    return covered / totalWeight
+  }
+  const kept = candidates.filter(
+    (hit) =>
+      (hit.rank ?? 0) >= floor &&
+      hit.score >= topScore * 0.35 &&
+      coverageOf(hit) >= config.search.minCoverage,
+  )
+  const final = kept.length > 0 ? kept : candidates.slice(0, 1)
+  return final.slice(0, config.search.keep)
 }
 
 /** 并发读整页，单个页面失败不影响其余候选。 */
