@@ -102,6 +102,7 @@ questions:
   # true=权限看不全全部项目时不入队。默认 false：照样入队，响应里带 permissionLimited。
   requireFullAccess: false
 
-# 外部 agent 默认只带 public/internal，机密不出云端。要按账号放行就改 false。
+# 外部 agent 密级：false=按账号权限（owner/admin 可见 confidential，top_secret 仍只给主人）
+# true=只带 public/internal，机密不出云端
 agent:
-  restrictToInternal: true
+  publicOnlyOnly: false

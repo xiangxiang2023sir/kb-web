@@ -127,7 +127,7 @@ curl -X POST http://127.0.0.1:3000/api/agent/ask \
   -H 'Authorization: Bearer kb_<个人钥匙>' -H 'Content-Type: application/json' \
   -d '{"query":"行走电机 maxRPM","sessionId":"<上次返回的，可省略>"}'
 # → {ok, user, sessionId, answer, phase, citations}
-# 把 answer 原样发给用户；不要改写。对外只含 public/internal。
+# 把 answer 原样发给用户；不要改写。密级按账号权限（owner 可见 confidential）。
 # 不带 sessionId 也会接到最近一场外部会话（空闲超过 8 小时或 "new":true 会新开）。
 ```
 

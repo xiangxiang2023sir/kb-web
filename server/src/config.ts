@@ -39,8 +39,8 @@ export interface AppConfig {
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
   agent?: {
-    /** true=外部 agent 只看 public/internal，机密不出云端（默认 true） */
-    restrictToInternal?: boolean
+    /** true=外部 agent 只看 public/internal；false=按账号权限（默认 false） */
+    publicOnlyOnly?: boolean
   }
   questions?: {
     /** 外部通道（agent/飞书）问不到资料时，自动进问题队列 */
@@ -122,11 +122,11 @@ export function loadEnvFile() {
   }
 }
 
-/** 外部 agent 默认压掉 confidential / top_secret。旧键 publicOnlyOnly 仍认。 */
-function agentRestrictToInternal(agent: { restrictToInternal?: unknown; publicOnlyOnly?: unknown } | undefined): boolean {
-  if (agent?.restrictToInternal != null) return agent.restrictToInternal !== false
+/** 外部 agent 默认按账号权限。true 才只带 public/internal。restrictToInternal 是旧键别名。 */
+function agentPublicOnlyOnly(agent: { restrictToInternal?: unknown; publicOnlyOnly?: unknown } | undefined): boolean {
   if (agent?.publicOnlyOnly != null) return agent.publicOnlyOnly === true
-  return true
+  if (agent?.restrictToInternal != null) return agent.restrictToInternal === true
+  return false
 }
 
 export function loadConfig(): AppConfig {
@@ -226,7 +226,7 @@ export function loadConfig(): AppConfig {
       dedupeHours: Number(raw.questions?.dedupeHours ?? 24),
       requireFullAccess: raw.questions?.requireFullAccess === true,
     },
-    agent: { restrictToInternal: agentRestrictToInternal(raw.agent) },
+    agent: { publicOnlyOnly: agentPublicOnlyOnly(raw.agent) },
     feishu: { groupOnlyMention: raw.feishu?.groupOnlyMention !== false },
   }
 }

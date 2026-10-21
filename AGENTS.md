@@ -31,7 +31,7 @@
 - 前端：`src/`（Vue 3 + Pinia + Element Plus）。`npm run dev` 是 Mock；`npm run dev:real` 走真实后端。
 - 后端：`server/src/`（Express + WebSocket）。配置 `server/config.yaml`，密钥 `server/.env`（不要提交）。
 - 知识库：本机 GBrain（PGLite）。slug 约定 `{field}/{sensitivity}/{name}`，例如 `electrical/internal/inverter-f009`。
-- 权限：slug `{领域/密级/名字}` + 项目成员。主人全见；管理员不见 top_secret；操作员看所在项目；游客仅 public。外部 agent 默认只带 public/internal（`config.yaml` → `agent.restrictToInternal`）。
+- 权限：slug `{领域/密级/名字}` + 项目成员。主人全见；管理员不见 top_secret；操作员看所在项目；游客仅 public。外部 agent 默认按账号权限（`config.yaml` → `agent.publicOnlyOnly`，true 才只带 public/internal）。
 
 问答固定流水线（不要改成多轮选工具的 Agent）：
 

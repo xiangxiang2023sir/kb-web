@@ -1264,9 +1264,9 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         { type: 'ask', questionId: newId('q'), question: query, sessionId },
         collected.emit,
         undefined,
-        // 默认只带 public/internal；要按账号放机密就设 agent.restrictToInternal=false
+        // 从配置读：false=按账号权限（owner 可见 confidential）；true=只带 public/internal
         {
-          publicOnly: config.agent?.restrictToInternal !== false,
+          publicOnly: config.agent?.publicOnlyOnly === true,
           source: 'agent',
           sources: scope.sources,
           projectRole: scope.projectRole,

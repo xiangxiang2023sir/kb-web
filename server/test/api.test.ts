@@ -203,7 +203,7 @@ gbrain: { command: node, argsPrefix: [${JSON.stringify(fakeGbrain)}], timeoutMs:
 health: { reportIslandedPages: false }
 limits: { imageBytes: 1000000, docBytes: 1000000, classifyChars: 1000 }
 auth: { cookieName: kb_sid, ttlDays: 1 }
-agent: { restrictToInternal: true }
+agent: { publicOnlyOnly: true }
 `,
   )
   process.env.KB_CONFIG = join(dir, 'config.yaml')
