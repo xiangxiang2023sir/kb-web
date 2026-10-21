@@ -130,8 +130,8 @@ export function loadConfig(): AppConfig {
       rerankCandidates: Number(raw.search?.rerankCandidates ?? 12),
       coverageWeight: Number(raw.search?.coverageWeight ?? 0.6),
       pageChars: Number(raw.search?.pageChars ?? 4000),
-      minRankRatio: Number(raw.search?.minRankRatio ?? 0.6),
-      minCoverage: Number(raw.search?.minCoverage ?? 0.4),
+      minRankRatio: Number(raw.search?.minRankRatio ?? 0),
+      minCoverage: Number(raw.search?.minCoverage ?? 0),
     },
     confidence: {
       highMin: Number(raw.confidence?.highMin ?? 0.03),

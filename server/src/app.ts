@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import Busboy from 'busboy'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { assertCanConfirm, canSee, parseSlug } from './access.js'
+import { assertCanConfirm, canSee, canSeeInProject, parseSlug } from './access.js'
 import { archiveToPending, listArchives, readArchive, writeWeeklyArchives } from './archive.js'
 import { cancelAll, cancelAsk, collectAskResult, contextOf, handleAsk, resolveAgentSession, runAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
@@ -18,6 +18,7 @@ import {
   listGBrainFull,
   pageBodyGBrain,
   searchGBrain,
+  searchGBrainMulti,
 } from './gbrain.js'
 import { runHealth } from './health.js'
 import { askHermesStream, hermesConfigured, type HermesTurn } from './hermes.js'
@@ -1068,6 +1069,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const query = String(req.body?.query ?? '').trim()
       if (!query) throw new HttpError(400, 'query 必填')
       const user = agentUserOf(req)
+      const scope = projectScope(user, req.body?.project)
       const sessionId = resolveAgentSession(db, user, config, req.body ?? {})
       const collected = collectAskResult()
       await runAsk(
@@ -1077,7 +1079,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         { type: 'ask', questionId: newId('q'), question: query, sessionId },
         collected.emit,
         undefined,
-        { publicOnly: true, source: 'agent' },
+        { publicOnly: true, source: 'agent', sources: scope.sources, projectRole: scope.projectRole },
       )
       const out = collected.result()
       if (out.error && !out.answer) throw new HttpError(502, out.error)
@@ -1103,13 +1105,21 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const query = String(req.body?.query ?? '').trim()
       if (!query) throw new HttpError(400, 'query 必填')
       const user = agentUserOf(req)
+      const scope = projectScope(user, req.body?.project)
 
       const limit = Math.min(Math.max(Number(req.body?.limit ?? 5), 1), 5)
-      const rows = await searchGBrain(config, query, Math.max(limit * 3, 10), 0).catch(() => [])
+      const rows = await searchGBrainMulti(config, query, Math.max(limit * 3, 10), 0, scope.sources).catch(
+        () => [],
+      )
       const hits: Record<string, unknown>[] = []
       for (const row of rows) {
         const parsed = parseSlug(row.slug)
-        if (!parsed || !canSee(user, parsed.field, parsed.sensitivity)) continue
+        if (!parsed) continue
+        const visible =
+          scope.projectRole === undefined
+            ? canSee(user, parsed.field, parsed.sensitivity)
+            : canSeeInProject(user.role, scope.projectRole, parsed.sensitivity)
+        if (!visible) continue
         if (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret') continue
         hits.push({
           slug: row.slug,
@@ -1124,6 +1134,31 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       res.json({ ok: true, user: user.name, hits, noEvidence: hits.length ? null : config.noEvidence.text })
     }),
   )
+
+  /**
+   * 解析请求里的 project，并算出这次检索能看的 source 列表：
+   * · 不带 project → 全局：公共库 default + 我参与的 active 项目（主人=全部 active 项目）
+   * · 带 project   → 只查该项目；不存在/已归档/非成员直接报错（不静默降级）
+   */
+  function projectScope(
+    user: User,
+    projectParam: unknown,
+  ): { sources: string[]; projectRole?: 'lead' | 'member' } {
+    const myProjects =
+      user.role === 'owner'
+        ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id)
+        : db.projectsOfUser(user.id)
+    // 全局模式默认不含 tools（工具/方法论页会抢项目知识的位次），需要时显式带 project=tools
+    const base = ['default', ...myProjects.filter((id) => id !== 'tools')]
+    const pid = String(projectParam ?? '').trim()
+    if (!pid) return { sources: base }
+    const project = db.projectById(pid)
+    if (!project) throw new HttpError(404, `项目 ${pid} 不存在`)
+    if (project.status !== 'active') throw new HttpError(403, `项目 ${pid} 已归档，不能按项目检索`)
+    const role = db.projectRoleOf(pid, user.id)
+    if (!role && user.role !== 'owner') throw new HttpError(403, `你不是项目 ${pid} 的成员`)
+    return { sources: [pid], projectRole: role ?? 'lead' }
+  }
 
   // ================= 资料库（以 GBrain 为准）=================
   const audit = (actor: string, action: string, target: string, extra?: Record<string, unknown>) => {
@@ -1174,7 +1209,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const sensitivity = String(req.query.sensitivity ?? '').trim()
       const page = Math.max(1, Number(req.query.page ?? 1))
       const size = Math.min(Math.max(1, Number(req.query.size ?? 20)), 200)
-      let all = await listGBrainFull(config)
+      const sourceId = String(req.query.project ?? '').trim() || undefined
+      let all = await listGBrainFull(config, sourceId)
       all = all.filter((pg) => {
         const parts = pg.slug.split('/')
         if (field && parts[0] !== field) return false
@@ -1203,7 +1239,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!slug) throw new HttpError(400, 'slug 必填')
       const sensitivity = slug.split('/')[1] ?? ''
       if (sensitivity === 'top_secret' && userOf(res)!.role !== 'owner') throw new HttpError(403, '绝密内容只有主人能看')
-      const body = await pageBodyGBrain(config, slug).catch(() => '')
+      const src = String(req.query.project ?? '').trim() || undefined
+      const body = await pageBodyGBrain(config, slug, src).catch(() => '')
       if (!body.trim()) throw new HttpError(404, 'GBrain 里没有这一页')
       res.json({ slug, content: body })
     }),
@@ -1221,7 +1258,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (sensitivity === 'top_secret' && me.role !== 'owner') {
         throw new HttpError(403, '绝密页面只有主人能删除')
       }
-      await deleteGBrainPage(config, slug)
+      const src = String(req.query.project ?? '').trim() || undefined
+      await deleteGBrainPage(config, slug, src)
       // 清掉登记表里指向这个 slug 的条目（docs 表只做登记，不是知识本体）
       const ids = db.docIdsBySourcePath(slug)
       for (const id of ids) db.deleteDoc(id)

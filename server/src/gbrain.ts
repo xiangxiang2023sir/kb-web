@@ -91,8 +91,14 @@ function parseJson(stdout: string): unknown {
   }
 }
 
-export async function searchGBrain(config: AppConfig, query: string, limit: number, offset: number): Promise<GBrainHit[]> {
-  const stdout = await runGBrain(config, ['search', query, '--limit', String(limit), '--offset', String(offset), '--json'])
+export async function searchGBrain(
+  config: AppConfig,
+  query: string,
+  limit: number,
+  offset: number,
+  sourceId?: string,
+): Promise<GBrainHit[]> {
+  const stdout = await runGBrain(config, ['search', query, '--limit', String(limit), '--offset', String(offset), '--json', ...(sourceId ? ['--source-id', sourceId] : [])])
   const parsed = parseJson(stdout)
   const rows = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { results?: unknown })?.results) ? (parsed as { results: unknown[] }).results : []
   return rows
@@ -112,8 +118,8 @@ export async function searchGBrain(config: AppConfig, query: string, limit: numb
  * 读整页正文。search 只回一片 chunk，页面后段的结论会被截掉，
  * 所以候选命中要再取一次整页，交给模型通读。
  */
-export async function pageBodyGBrain(config: AppConfig, slug: string): Promise<string> {
-  const stdout = await runGBrain(config, ['get', slug, '--body'], Math.min(config.gbrain.timeoutMs, 20000))
+export async function pageBodyGBrain(config: AppConfig, slug: string, sourceId?: string): Promise<string> {
+  const stdout = await runGBrain(config, ['get', slug, '--body', ...(sourceId ? ['--source-id', sourceId] : [])], Math.min(config.gbrain.timeoutMs, 20000))
   return stripPageOutput(stdout)
 }
 
@@ -208,8 +214,12 @@ export interface GBrainPageFull {
 }
 
 /** gbrain list --json → 带类型和更新时间的完整清单 */
-export async function listGBrainFull(config: AppConfig): Promise<GBrainPageFull[]> {
-  const raw = await runGBrain(config, ['list', '--limit', '1000', '--json'], Math.max(config.gbrain.timeoutMs, 120000))
+export async function listGBrainFull(config: AppConfig, sourceId?: string): Promise<GBrainPageFull[]> {
+  const raw = await runGBrain(
+    config,
+    ['list', '--limit', '1000', '--json', ...(sourceId ? ['--source-id', sourceId] : [])],
+    Math.max(config.gbrain.timeoutMs, 120000),
+  )
   try {
     const rows = JSON.parse(raw) as { slug?: string; title?: string; type?: string; updated_at?: string; source_id?: string }[]
     return rows
@@ -228,6 +238,34 @@ export async function listGBrainFull(config: AppConfig): Promise<GBrainPageFull[
 }
 
 /** 删一个页（硬删：行 + 分块 + 磁盘 md 一起） */
-export async function deleteGBrainPage(config: AppConfig, slug: string): Promise<void> {
-  await runGBrain(config, ['delete', slug, '--force', '--purge'], Math.max(config.gbrain.timeoutMs, 120000))
+export async function deleteGBrainPage(config: AppConfig, slug: string, sourceId?: string): Promise<void> {
+  await runGBrain(
+    config,
+    ['delete', slug, '--force', '--purge', ...(sourceId ? ['--source-id', sourceId] : [])],
+    Math.max(config.gbrain.timeoutMs, 120000),
+  )
+}
+
+/** 多 source 检索：逐个 source 查再合并（按分数排序、slug 去重） */
+export async function searchGBrainMulti(
+  config: AppConfig,
+  query: string,
+  limit: number,
+  offset: number,
+  sources: string[],
+): Promise<GBrainHit[]> {
+  if (sources.length === 0) return []
+  if (sources.length === 1) return searchGBrain(config, query, limit, offset, sources[0])
+  const all = await Promise.all(
+    sources.map((s) => searchGBrain(config, query, limit, offset, s).catch(() => [] as GBrainHit[])),
+  )
+  const seen = new Set<string>()
+  const merged: GBrainHit[] = []
+  for (const hit of all.flat()) {
+    if (seen.has(hit.slug)) continue
+    seen.add(hit.slug)
+    merged.push(hit)
+  }
+  // 不做按源归一化（会把弱源的头名抬到 1.0 压掉真正匹配的页），保留原始分排序
+  return merged.sort((a, b) => b.score - a.score).slice(0, limit)
 }

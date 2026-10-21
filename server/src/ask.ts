@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import type { WebSocket } from 'ws'
-import { canSee, parseSlug } from './access.js'
+import { canSee, canSeeInProject, parseSlug, type ProjectRole } from './access.js'
 import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User } from './config.js'
 import { KbDb, newId } from './db.js'
-import { GBrainError, pageBodyGBrain, searchGBrain } from './gbrain.js'
+import { GBrainError, pageBodyGBrain, searchGBrain, searchGBrainMulti } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
 import { isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from './text.js'
 
@@ -116,7 +116,7 @@ export async function runAsk(
   msg: AskMessage,
   emit: AskEmit,
   run?: Run,
-  opts?: { publicOnly?: boolean; source?: 'web' | 'agent' },
+  opts?: { publicOnly?: boolean; source?: 'web' | 'agent'; sources?: string[]; projectRole?: ProjectRole | null },
 ) {
   const questionId = msg.questionId
   const abort = run?.abort ?? new AbortController()
@@ -195,7 +195,14 @@ export async function runAsk(
 
   const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
   const query = searchTermsOf(stripped)
-  const hits = await collectHits(config, user, query, opts?.publicOnly === true)
+  const hits = await collectHits(
+    config,
+    user,
+    query,
+    opts?.publicOnly === true,
+    opts?.sources,
+    opts?.projectRole,
+  )
 
   if (hits.length === 0) {
     const text = config.noEvidence.text
@@ -286,16 +293,34 @@ interface KeptHit {
  * 2) 候选逐条读整页正文（search 只给一片 chunk，结论常在页面后段）；
  * 3) 用「归一化 GBrain 分 + 整页命中覆盖率」重排，取前 keep 条给模型。
  */
-async function collectHits(config: AppConfig, user: User, query: string, publicOnly = false) {
+async function collectHits(
+  config: AppConfig,
+  user: User,
+  query: string,
+  publicOnly = false,
+  sources?: string[],
+  projectRole?: ProjectRole | null,
+) {
   const want = Math.max(config.search.rerankCandidates, config.search.keep)
   const seen = new Set<string>()
   const candidates: KeptHit[] = []
   for (let page = 0; page < config.search.maxPages && candidates.length < want; page++) {
-    const rows = await searchGBrain(config, query, config.search.fetchLimit, page * config.search.fetchLimit)
+    const rows = await searchGBrainMulti(
+      config,
+      query,
+      config.search.fetchLimit,
+      page * config.search.fetchLimit,
+      sources ?? [],
+    )
     if (rows.length === 0) break
     for (const row of rows) {
       const parsed = parseSlug(row.slug)
-      if (!parsed || seen.has(row.slug) || !canSee(user, parsed.field, parsed.sensitivity)) continue
+      if (!parsed || seen.has(row.slug)) continue
+      const visible =
+        projectRole === undefined
+          ? canSee(user, parsed.field, parsed.sensitivity)
+          : canSeeInProject(user.role, projectRole, parsed.sensitivity)
+      if (!visible) continue
       if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) continue
       seen.add(row.slug)
       candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
@@ -304,7 +329,7 @@ async function collectHits(config: AppConfig, user: User, query: string, publicO
   }
   if (candidates.length === 0) return candidates
 
-  await fillBodies(config, candidates)
+  await fillBodies(config, candidates, sources)
 
   const terms = query.split(/\s+/).filter(Boolean)
   const weightOf = (term: string) => (term.length >= 4 ? 3 : term.length === 3 ? 2 : 1)
@@ -317,6 +342,11 @@ async function collectHits(config: AppConfig, user: User, query: string, publicO
   }
   candidates.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))
   // 过滤弱相关：低于头部这个比例的候选不送进模型（避免凑数引用、答案跑题）
+  // 弱相关过滤默认关闭（阈值设为 0 即为关）：实测严格过滤会把真正相关的页切掉，
+  // 宁可交粗召回给模型；需要时在 config.yaml 里调 search.minRankRatio / minCoverage
+  if (config.search.minRankRatio <= 0 && config.search.minCoverage <= 0) {
+    return candidates.slice(0, config.search.keep)
+  }
   const top = candidates[0]?.rank ?? 0
   const floor = top * config.search.minRankRatio
   const topScore = candidates[0]?.score ?? 0
@@ -336,14 +366,24 @@ async function collectHits(config: AppConfig, user: User, query: string, publicO
 }
 
 /** 并发读整页，单个页面失败不影响其余候选。 */
-async function fillBodies(config: AppConfig, hits: KeptHit[]) {
+async function fillBodies(config: AppConfig, hits: KeptHit[], sources?: string[]) {
   const queue = [...hits]
   const worker = async () => {
     for (;;) {
       const hit = queue.shift()
       if (!hit) return
       try {
-        hit.body = await pageBodyGBrain(config, hit.slug)
+        // 逐源试读正文（多源模式下不知道页在哪个源）
+        let body = ''
+        for (const s of sources && sources.length ? sources : [undefined]) {
+          try {
+            body = await pageBodyGBrain(config, hit.slug, s as string | undefined)
+            if (body.trim()) break
+          } catch {
+            /* 换下一个源 */
+          }
+        }
+        hit.body = body
       } catch {
         hit.body = ''
       }
