@@ -2,7 +2,6 @@
 # kb-web 一键还原（换机器后跑这个）
 # 前提：node/bun/gbrain 已装；~/.gbrain、~/kb-sources、~/kb-web、server/.env 已拷到本机
 # 密钥只放 ~/kb-web/server/.env，不要写进 unit 文件。
-# 不要启动 gbrain serve：PGLite 单写者，serve 会锁库，kb-web 的 CLI spawn 全部 pglite_busy。
 set -euo pipefail
 HOME_DIR="${HOME:?请设置 HOME}"
 REPO="$HOME_DIR/kb-web"
@@ -21,7 +20,8 @@ cd "$REPO"
 npm install --prefix server
 npm run build
 
-echo "== 3/4 注册 kb-web 服务（禁用 gbrain-serve，避免锁 PGLite） =="
+echo "== 3/4 注册 kb-web 服务 =="
+# 旧机若还留着 gbrain-serve（会锁 PGLite），顺手清掉
 systemctl --user disable --now gbrain-serve.service 2>/dev/null || true
 rm -f "$UNIT_DIR/gbrain-serve.service"
 cat > "$UNIT_DIR/kb-web.service" <<EOF
@@ -46,4 +46,4 @@ systemctl --user daemon-reload
 systemctl --user enable --now kb-web.service
 sleep 8
 echo -n "  kb-web : "; curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 http://127.0.0.1:3000/ || true
-echo "完成。不要再启动 gbrain serve。密钥在 $ENV_FILE。"
+echo "完成。密钥在 $ENV_FILE。"
