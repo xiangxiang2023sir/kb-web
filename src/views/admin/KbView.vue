@@ -45,6 +45,9 @@
 
     <!-- 筛选 -->
     <div class="filters">
+      <el-select v-model="query.project" placeholder="全部项目" clearable style="width: 170px" @change="reload">
+        <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
+      </el-select>
       <el-input v-model="query.keyword" placeholder="搜标题或 slug" clearable style="width: 240px" @keyup.enter="reload" />
       <el-select v-model="query.field" placeholder="全部领域" clearable style="width: 130px">
         <el-option label="电气" value="electrical" />
@@ -114,7 +117,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownIt from 'markdown-it'
-import { kbApi, type KbPageItem, type KbStatus } from '@/api/endpoints'
+import { kbApi, projectsApi, type KbPageItem, type KbStatus } from '@/api/endpoints'
 import { useAuthStore } from '@/stores/auth'
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
@@ -125,7 +128,8 @@ const loading = ref(false)
 const status = ref<KbStatus | null>(null)
 const list = ref<KbPageItem[]>([])
 const total = ref(0)
-const query = reactive({ keyword: '', field: '', sensitivity: '', page: 1, size: 20 })
+const query = reactive({ keyword: '', field: '', sensitivity: '', project: '', page: 1, size: 20 })
+const projects = ref<{ id: string; name: string }[]>([])
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -155,6 +159,7 @@ async function loadList() {
       keyword: query.keyword || undefined,
       field: query.field || undefined,
       sensitivity: query.sensitivity || undefined,
+      project: query.project || undefined,
       page: query.page,
       size: query.size,
     })
@@ -209,7 +214,8 @@ async function remove(row: { slug: string; title: string }) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  projects.value = await projectsApi.mine().catch(() => [])
   void loadStatus()
   void loadList()
 })

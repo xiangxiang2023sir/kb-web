@@ -13,6 +13,8 @@ export interface AskMessage {
   question: string
   sessionId?: string
   attachments?: { id: string; url: string; name: string; mimeType: string; size: number }[]
+  /** 项目 id：带了就只查这个项目的 source（专题模式） */
+  project?: string
 }
 
 export type AskEmit = (event: Record<string, unknown>) => void
@@ -94,6 +96,26 @@ export function cancelAll(ws: WebSocket) {
 
 /** 网站 WebSocket 入口。其它通道复用 runAsk + 自己的 emit。 */
 export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: AppConfig, msg: AskMessage) {
+  // 带 project → 只查该项目；不带 → 全局（公共库 + 我参与的项目，不含 tools）
+  let askSources: string[] | undefined
+  let askRole: ProjectRole | undefined
+  const pid = String(msg.project ?? '').trim()
+  if (pid) {
+    const project = db.projectById(pid)
+    if (!project) throw new GBrainError(`项目 ${pid} 不存在`)
+    if (project.status !== 'active') throw new GBrainError(`项目 ${pid} 已归档`)
+    const role = db.projectRoleOf(pid, user.id)
+    if (!role && user.role !== 'owner') throw new GBrainError(`你不是项目 ${pid} 的成员`)
+    askSources = [pid]
+    askRole = role ?? 'lead'
+  } else {
+    const mine =
+      user.role === 'owner'
+        ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id)
+        : db.projectsOfUser(user.id)
+    askSources = ['default', ...mine.filter((id) => id !== 'tools')]
+  }
+
   const abort = new AbortController()
   const run: Run = { abort, cancelled: false }
   let socketRuns = runs.get(ws)
@@ -103,7 +125,7 @@ export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: App
   }
   socketRuns.set(msg.questionId, run)
   try {
-    await runAsk(user, db, config, msg, (event) => send(ws, event), run, { source: 'web' })
+    await runAsk(user, db, config, msg, (event) => send(ws, event), run, { source: 'web', sources: askSources, projectRole: askRole })
   } finally {
     socketRuns!.delete(msg.questionId)
   }

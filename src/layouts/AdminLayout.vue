@@ -16,6 +16,7 @@ import {
   ChatLineRound,
   SwitchButton,
   Collection,
+  FolderOpened,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -44,6 +45,10 @@ async function logout() {
           <el-menu-item v-if="auth.isAdmin" index="/admin/kb">
             <el-icon><Collection /></el-icon>
             <span>资料库</span>
+          </el-menu-item>
+          <el-menu-item v-if="auth.isAdmin" index="/admin/projects">
+            <el-icon><FolderOpened /></el-icon>
+            <span>项目管理</span>
           </el-menu-item>
           <el-menu-item index="/admin/docs">
             <el-icon><Document /></el-icon>

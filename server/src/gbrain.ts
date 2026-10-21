@@ -214,10 +214,10 @@ export interface GBrainPageFull {
 }
 
 /** gbrain list --json → 带类型和更新时间的完整清单 */
-export async function listGBrainFull(config: AppConfig, sourceId?: string): Promise<GBrainPageFull[]> {
+export async function listGBrainFull(config: AppConfig, sourceId = '__all__'): Promise<GBrainPageFull[]> {
   const raw = await runGBrain(
     config,
-    ['list', '--limit', '1000', '--json', ...(sourceId ? ['--source-id', sourceId] : [])],
+    ['list', '--limit', '1000', '--json', '--source-id', sourceId],
     Math.max(config.gbrain.timeoutMs, 120000),
   )
   try {

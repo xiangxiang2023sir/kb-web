@@ -257,7 +257,7 @@ export interface KbStatus {
 /** 资料库（以 GBrain 为准） */
 export const kbApi = {
   status: () => http.get<KbStatus>('/admin/kb/status').then((r) => r.data),
-  pages: (params: { keyword?: string; field?: string; sensitivity?: string; page?: number; size?: number }) =>
+  pages: (params: { keyword?: string; field?: string; sensitivity?: string; project?: string; page?: number; size?: number }) =>
     http
       .get<{ total: number; page: number; size: number; list: KbPageItem[] }>('/admin/kb/pages', { params })
       .then((r) => r.data),
@@ -265,4 +265,36 @@ export const kbApi = {
     http.get<{ slug: string; content: string }>('/admin/kb/page', { params: { slug } }).then((r) => r.data),
   remove: (slug: string) =>
     http.delete<{ ok: boolean; slug: string; cleanedDocs: number }>('/admin/kb/page', { params: { slug } }).then((r) => r.data),
+}
+
+export interface ProjectItem {
+  id: string
+  name: string
+  status: string
+  note: string | null
+  createdAt: string
+  memberCount?: number
+  leads?: string[]
+}
+export interface ProjectMember {
+  userId: string
+  name: string
+  role: string
+  addedAt: string
+}
+
+/** 项目与成员 */
+export const projectsApi = {
+  list: () => http.get<ProjectItem[]>('/admin/projects').then((r) => r.data),
+  create: (payload: { id: string; name: string; note?: string }) =>
+    http.post('/admin/projects', payload).then((r) => r.data),
+  update: (id: string, patch: { name?: string; status?: string; note?: string | null }) =>
+    http.patch(`/admin/projects/${id}`, patch).then((r) => r.data),
+  members: (id: string) => http.get<ProjectMember[]>(`/admin/projects/${id}/members`).then((r) => r.data),
+  addMember: (id: string, userId: string, role: 'lead' | 'member') =>
+    http.post(`/admin/projects/${id}/members`, { userId, role }).then((r) => r.data),
+  removeMember: (id: string, userId: string) =>
+    http.delete(`/admin/projects/${id}/members/${userId}`).then((r) => r.data),
+  mine: () =>
+    http.get<{ id: string; name: string; role: string | null }[]>('/projects/mine').then((r) => r.data),
 }

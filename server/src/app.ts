@@ -1178,11 +1178,13 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const [stats, pages] = await Promise.all([gbrainStats(config), listGBrainFull(config)])
       const byField: Record<string, number> = {}
       const bySensitivity: Record<string, number> = {}
+      const bySource: Record<string, number> = {}
       let orphanCandidate = 0
       for (const pg of pages) {
         const parts = pg.slug.split('/')
         byField[parts[0] ?? 'unknown'] = (byField[parts[0] ?? 'unknown'] ?? 0) + 1
         bySensitivity[parts[1] ?? 'unknown'] = (bySensitivity[parts[1] ?? 'unknown'] ?? 0) + 1
+        bySource[pg.sourceId] = (bySource[pg.sourceId] ?? 0) + 1
         if (parts.length !== 3) orphanCandidate++
       }
       res.json({
@@ -1190,6 +1192,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         total: pages.length,
         byField,
         bySensitivity,
+        bySource,
         malformedSlugs: orphanCandidate,
         recent: pages
           .filter((pg) => pg.updatedAt)
