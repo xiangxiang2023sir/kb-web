@@ -99,3 +99,7 @@ questions:
   autoQueueFromAgent: true
   dedupeHours: 24
   requireFullAccess: true
+
+# 外部 agent 的可见性：false=按账号权限（默认）；true=只看 public/internal
+agent:
+  publicOnlyOnly: false

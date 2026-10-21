@@ -1264,7 +1264,13 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         { type: 'ask', questionId: newId('q'), question: query, sessionId },
         collected.emit,
         undefined,
-        { publicOnly: true, source: 'agent', sources: scope.sources, projectRole: scope.projectRole },
+        // 默认按账号权限判（confidential 给有权限的账号）；想一刀切屏蔽就设 agent.publicOnlyOnly=true
+        {
+          publicOnly: config.agent?.publicOnlyOnly === true,
+          source: 'agent',
+          sources: scope.sources,
+          projectRole: scope.projectRole,
+        },
       )
       const out = collected.result()
       if (out.error && !out.answer) throw new HttpError(502, out.error)

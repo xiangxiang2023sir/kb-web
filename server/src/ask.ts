@@ -342,8 +342,16 @@ async function collectHits(
         projectRole === undefined
           ? canSee(user, parsed.field, parsed.sensitivity)
           : canSeeInProject(user.role, projectRole, parsed.sensitivity)
-      if (!visible) continue
-      if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) continue
+      const dbg = process.env.KB_DEBUG_HITS === '1'
+      if (!visible) {
+        if (dbg) console.error(`[hits] DROP-权限 ${row.slug} field=${parsed.field} sens=${parsed.sensitivity} user=${user.name}/${user.role}`)
+        continue
+      }
+      if (publicOnly && (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret')) {
+        if (dbg) console.error(`[hits] DROP-publicOnly ${row.slug} sens=${parsed.sensitivity}`)
+        continue
+      }
+      if (dbg) console.error(`[hits] KEEP ${row.slug} score=${row.score} sens=${parsed.sensitivity}`)
       seen.add(row.slug)
       candidates.push({ ...row, field: parsed.field, sensitivity: parsed.sensitivity })
       if (candidates.length >= want) break
@@ -395,6 +403,9 @@ async function collectHits(
     hit.rank = hit.score / maxScore + config.search.coverageWeight * (covered / totalWeight)
   }
   candidates.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))
+  if (process.env.KB_DEBUG_HITS === '1') {
+    console.error('[hits] FINAL ' + candidates.slice(0, config.search.keep).map((h) => `${h.slug}(rank=${(h.rank ?? 0).toFixed(3)},len=${(h.body || h.chunkText || '').length})`).join(' | '))
+  }
   // 过滤弱相关：低于头部这个比例的候选不送进模型（避免凑数引用、答案跑题）
   // 弱相关过滤默认关闭（阈值设为 0 即为关）：实测严格过滤会把真正相关的页切掉，
   // 宁可交粗召回给模型；需要时在 config.yaml 里调 search.minRankRatio / minCoverage
@@ -438,8 +449,10 @@ async function fillBodies(config: AppConfig, hits: KeptHit[], sources?: string[]
           }
         }
         hit.body = body
+        if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] BODY ${hit.slug} len=${body.length}`)
       } catch {
         hit.body = ''
+        if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] BODY-FAIL ${hit.slug}`)
       }
     }
   }

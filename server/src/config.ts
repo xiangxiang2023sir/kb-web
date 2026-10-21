@@ -38,6 +38,10 @@ export interface AppConfig {
   }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
+  agent?: {
+    /** true=外部 agent 只看 public/internal（默认 false，按账号权限） */
+    publicOnlyOnly?: boolean
+  }
   questions?: {
     /** 外部通道（agent/飞书）问不到资料时，自动进问题队列 */
     autoQueueFromAgent?: boolean
@@ -215,6 +219,7 @@ export function loadConfig(): AppConfig {
       dedupeHours: Number(raw.questions?.dedupeHours ?? 24),
       requireFullAccess: raw.questions?.requireFullAccess !== false,
     },
+    agent: { publicOnlyOnly: raw.agent?.publicOnlyOnly === true },
     feishu: { groupOnlyMention: raw.feishu?.groupOnlyMention !== false },
   }
 }
