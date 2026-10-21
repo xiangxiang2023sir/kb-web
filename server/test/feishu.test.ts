@@ -22,7 +22,7 @@ const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
 function stubConfig(over: Partial<AppConfig['feishu']> = {}): AppConfig {
   return {
     auth: { cookieName: 'kb_sid', ttlDays: 1 },
-    search: { fetchLimit: 10, keep: 5, maxPages: 1, questionPhrases: [], rerankCandidates: 0, coverageWeight: 0.6, pageChars: 4000, minRankRatio: 0.6, minCoverage: 0.4 },
+    search: { fetchLimit: 10, keep: 5, maxPages: 1, questionPhrases: [], rerankCandidates: 0, coverageWeight: 0.6, pageChars: 4000, minRankRatio: 0.6, minCoverage: 0.4, toolsScoreScale: 0.85 },
     confidence: { highMin: 0.03, mediumMin: 0.015 },
     noEvidence: { text: '没有资料', score: 0.2 },
     chat: {

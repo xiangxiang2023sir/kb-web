@@ -74,6 +74,20 @@ test('多源混排时小源高分页仍留在候选里', () => {
   assert.equal(out[0]?.slug.includes('h1e0-06b'), true)
 })
 
+test('全局混排时 tools 只留 1 个名额', () => {
+  const hits = [
+    { slug: 'electrical/internal/tool-a', title: 'a', chunkText: '', score: 0.99, sourceId: 'tools' },
+    { slug: 'electrical/internal/tool-b', title: 'b', chunkText: '', score: 0.98, sourceId: 'tools' },
+    { slug: 'electrical/internal/tool-c', title: 'c', chunkText: '', score: 0.97, sourceId: 'tools' },
+    { slug: 'electrical/internal/amr-a', title: 'a', chunkText: '', score: 0.7, sourceId: 'p-amr01' },
+    { slug: 'electrical/internal/amr-b', title: 'b', chunkText: '', score: 0.69, sourceId: 'p-amr01' },
+    { slug: 'electrical/internal/amr-c', title: 'c', chunkText: '', score: 0.68, sourceId: 'p-amr01' },
+  ]
+  const out = diversifyHitsBySource(hits, ['p-amr01', 'tools'], 5)
+  assert.equal(out.filter((h) => h.sourceId === 'tools').length, 1)
+  assert.equal(out.some((h) => h.slug === 'electrical/internal/tool-a'), true)
+})
+
 test('覆盖率词不切二字组', () => {
   const terms = coverageTermsOf('我们自研的AGV雷达精度')
   assert.ok(terms.includes('AGV'))

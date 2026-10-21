@@ -1422,8 +1422,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       user.role === 'owner'
         ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id)
         : db.projectsOfUser(user.id)
-    // 全局模式默认不含 tools（工具/方法论页会抢项目知识的位次），需要时显式带 project=tools
-    const base = ['default', ...myProjects.filter((id) => id !== 'tools')]
+    // 全局也带 tools（SRC-1100 这类只在工具库）；混排时 ask.ts 会降权，避免方法论页抢位
+    const base = ['default', ...myProjects]
     const pid = String(projectParam ?? '').trim()
     if (!pid) return { sources: base }
     const project = db.projectById(pid)

@@ -35,6 +35,8 @@ export interface AppConfig {
     minRankRatio: number
     /** 弱相关过滤：查询词在页面里的覆盖率下限（低于它视为跑题） */
     minCoverage: number
+    /** 全局混排时 tools 源的分数乘数（专题里查 tools 不降） */
+    toolsScoreScale: number
   }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
@@ -151,6 +153,7 @@ export function loadConfig(): AppConfig {
       pageChars: Number(raw.search?.pageChars ?? 4000),
       minRankRatio: Number(raw.search?.minRankRatio ?? 0),
       minCoverage: Number(raw.search?.minCoverage ?? 0),
+      toolsScoreScale: Number(raw.search?.toolsScoreScale ?? 0.85),
     },
     confidence: {
       highMin: Number(raw.confidence?.highMin ?? 0.03),

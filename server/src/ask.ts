@@ -96,7 +96,7 @@ export function cancelAll(ws: WebSocket) {
 
 /** 网站 WebSocket 入口。其它通道复用 runAsk + 自己的 emit。 */
 export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: AppConfig, msg: AskMessage) {
-  // 带 project → 只查该项目；不带 → 全局（公共库 + 我参与的项目，不含 tools）
+  // 带 project → 只查该项目；不带 → 全局（公共库 + 我参与的项目，含 tools，排序时降权）
   let askSources: string[] | undefined
   let askRole: ProjectRole | undefined
   const pid = String(msg.project ?? '').trim()
@@ -113,7 +113,7 @@ export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: App
       user.role === 'owner'
         ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id)
         : db.projectsOfUser(user.id)
-    askSources = ['default', ...mine.filter((id) => id !== 'tools')]
+    askSources = ['default', ...mine]
   }
 
   const abort = new AbortController()
@@ -389,9 +389,12 @@ async function collectHits(
     const covered = terms.reduce((sum, term) => (text.includes(term) ? sum + weightOf(term) : sum), 0)
     return covered / totalWeight
   }
-  // 主序是 GBrain score；覆盖率只加一点点，避免「我们/自研」把无关页抬到第一。
+  // 主序是 GBrain score；覆盖率只加一点点。全局混排时 tools 降权，专题里查 tools 不降。
+  const demoteTools = allow.length > 1
+  const toolsScale = Number.isFinite(config.search.toolsScoreScale) ? config.search.toolsScoreScale : 0.85
   for (const hit of candidates) {
-    hit.rank = hit.score + config.search.coverageWeight * coverageOf(hit)
+    const scale = demoteTools && hit.sourceId === 'tools' ? toolsScale : 1
+    hit.rank = hit.score * scale + config.search.coverageWeight * coverageOf(hit)
   }
   candidates.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0) || b.score - a.score)
   let kept = candidates

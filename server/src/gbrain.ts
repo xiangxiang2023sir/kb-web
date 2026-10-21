@@ -27,10 +27,12 @@ export function diversifyHitsBySource(hits: GBrainHit[], sources: string[], limi
     .filter((h) => h.slug && (!h.sourceId || allow.has(h.sourceId)))
     .sort((a, b) => b.score - a.score)
   if (scoped.length <= limit) return scoped
-  const per = Math.max(3, Math.ceil(limit / Math.max(1, sources.length)))
+  const quotaOf = (source: string) =>
+    source === 'tools' ? 1 : Math.max(3, Math.ceil(limit / Math.max(1, sources.length)))
   const picked: GBrainHit[] = []
   const used = new Set<string>()
   for (const source of sources) {
+    const per = quotaOf(source)
     let n = 0
     for (const hit of scoped) {
       if (n >= per || picked.length >= limit) break
@@ -44,6 +46,8 @@ export function diversifyHitsBySource(hits: GBrainHit[], sources: string[], limi
   for (const hit of scoped) {
     if (picked.length >= limit) break
     if (used.has(hit.slug)) continue
+    // tools 预留 1 条后不再用高分把方法论页补进来
+    if ((hit.sourceId ?? 'default') === 'tools') continue
     picked.push(hit)
     used.add(hit.slug)
   }

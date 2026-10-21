@@ -10,6 +10,8 @@ search:
   rerankCandidates: 12
   # 覆盖率加权，相对 score 要小。0.6 会把「我们/自研」多的无关页抬到手册页前面。
   coverageWeight: 0.05
+  # 全局检索带上 tools，但分数乘这个系数，避免方法论页抢手册位次。专题里点 tools 不降。
+  toolsScoreScale: 0.85
   # 每条资料送进模型的字数上限（长页面按命中位置取窗口）。
   pageChars: 4000
   # 检索前从问题里删掉这些说法，留下设备名和故障码。按长到短匹配。
