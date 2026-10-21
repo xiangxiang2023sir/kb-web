@@ -417,6 +417,7 @@ function retry(m: ChatMessage) {
   text-align: center;
   color: var(--kb-text-secondary);
   margin-top: 15vh;
+  padding: 0 16px;
 }
 
 .chat-empty h2 {
@@ -512,6 +513,10 @@ function retry(m: ChatMessage) {
   align-items: flex-end;
 }
 
+.chat-input :deep(textarea) {
+  font-size: 16px;
+}
+
 .attach-list {
   display: flex;
   gap: 10px;
@@ -568,6 +573,52 @@ function retry(m: ChatMessage) {
 .send-btn {
   height: auto;
   align-self: stretch;
+}
+
+@media (max-width: 768px) {
+  .chat-toolbar {
+    padding: 8px 12px;
+  }
+
+  .chat-messages {
+    padding: 12px 12px 8px;
+  }
+
+  .msg-bubble {
+    max-width: 100%;
+  }
+
+  .msg-attachments .el-image {
+    width: 96px;
+    height: 96px;
+  }
+
+  .chat-input-area {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .chat-input {
+    padding: 8px 12px 12px;
+    gap: 8px;
+  }
+
+  .attach-list {
+    padding: 10px 12px 0;
+  }
+
+  .chat-input :deep(.el-textarea__inner) {
+    min-height: 44px;
+  }
+
+  .send-btn {
+    min-width: 64px;
+    min-height: 44px;
+    align-self: flex-end;
+  }
+
+  .intake-card {
+    max-width: 100%;
+  }
 }
 
 /* v-html 渲染的 Markdown 内容没有 scoped 属性，需要 :deep */

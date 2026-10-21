@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -7,7 +7,7 @@ import { useChatStore } from '@/stores/chat'
 import { chatApi } from '@/api/endpoints'
 import { wsClient } from '@/api/ws'
 import { roleLabels } from '@/utils/labels'
-import { ChatDotRound, Clock, Connection, QuestionFilled, Setting, SwitchButton } from '@element-plus/icons-vue'
+import { ChatDotRound, Clock, Connection, Menu, QuestionFilled, Setting, SwitchButton } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,6 +15,18 @@ const auth = useAuthStore()
 const chat = useChatStore()
 
 onMounted(() => chat.init())
+
+const navOpen = ref(false)
+watch(
+  () => route.fullPath,
+  () => {
+    navOpen.value = false
+  },
+)
+
+function closeNav() {
+  navOpen.value = false
+}
 
 const activeMenu = computed(() => {
   const p = route.path
@@ -25,6 +37,7 @@ const activeMenu = computed(() => {
 
 function newChat() {
   chat.reset()
+  navOpen.value = false
   if (route.path !== '/chat') router.push('/chat')
 }
 
@@ -57,6 +70,7 @@ async function loadSkillMeta() {
 }
 
 function openBind() {
+  navOpen.value = false
   bindVisible.value = true
   void loadSkillMeta()
 }
@@ -123,10 +137,18 @@ async function revokeSkill() {
 </script>
 
 <template>
-  <div class="app-shell">
-    <aside class="app-sidebar">
+  <div class="app-shell chat-shell">
+    <header class="chat-mobile-bar">
+      <button type="button" class="chat-nav-btn" aria-label="打开菜单" @click="navOpen = true">
+        <el-icon :size="20"><Menu /></el-icon>
+      </button>
+      <span class="chat-mobile-title">工业知识库</span>
+      <button type="button" class="chat-nav-btn" aria-label="新对话" @click="newChat">新对话</button>
+    </header>
+    <button v-if="navOpen" type="button" class="chat-nav-mask" aria-label="关闭菜单" @click="closeNav" />
+    <aside class="app-sidebar" :class="{ open: navOpen }">
       <div class="logo">工业知识库</div>
-      <el-menu :default-active="activeMenu" router>
+      <el-menu :default-active="activeMenu" router @select="closeNav">
         <el-menu-item index="/chat" @click="newChat">
           <el-icon><ChatDotRound /></el-icon>
           <span>新对话</span>
@@ -155,7 +177,7 @@ async function revokeSkill() {
       <router-view />
     </div>
 
-    <el-dialog v-model="bindVisible" title="绑定外部 agent" width="480px">
+    <el-dialog v-model="bindVisible" title="绑定外部 agent" class="chat-bind-dialog" width="min(480px, 92vw)">
       <p class="bind-hint">
         下载一份 Skill 说明（含你的钥匙），交给飞书智能体、豆包或 Cursor。问设备、规程时它会调知识库，把现成答案原样发给你，不自己发挥。一个账号一把钥匙。
       </p>

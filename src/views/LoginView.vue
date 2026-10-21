@@ -98,7 +98,7 @@ async function doGuest() {
 
       <el-button class="full" text @click="regVisible = true">申请注册账号</el-button>
 
-      <el-dialog v-model="regVisible" title="申请注册（管理员批准后可用）" width="440px">
+      <el-dialog v-model="regVisible" title="申请注册（管理员批准后可用）" width="min(440px, 92vw)">
 
         <el-form label-width="80px">
 
@@ -136,10 +136,19 @@ async function doGuest() {
   align-items: center;
   justify-content: center;
   background: #1f262e;
+  padding: 16px;
+  padding-top: max(16px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
 }
 
 .login-card {
   width: 380px;
+  max-width: 100%;
+}
+
+.login-card :deep(.el-input__inner),
+.login-card :deep(.el-input__wrapper input) {
+  font-size: 16px;
 }
 
 h1 {
@@ -165,5 +174,19 @@ h1 {
   color: var(--el-color-danger);
   font-size: 13px;
   margin: 12px 0 0;
+}
+
+@media (max-width: 480px) {
+  .login-card :deep(.el-card__body) {
+    padding: 18px 16px;
+  }
+
+  h1 {
+    font-size: 20px;
+  }
+
+  .full {
+    min-height: 44px;
+  }
 }
 </style>
