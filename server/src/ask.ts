@@ -293,6 +293,7 @@ interface KeptHit {
   title: string
   chunkText: string
   score: number
+  sourceId?: string
   field: Field
   sensitivity: Sensitivity
   /** 整页正文（取不到时为空，回落到 chunkText） */
