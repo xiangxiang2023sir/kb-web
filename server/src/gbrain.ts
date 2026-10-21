@@ -119,7 +119,8 @@ export async function searchGBrain(
  * 所以候选命中要再取一次整页，交给模型通读。
  */
 export async function pageBodyGBrain(config: AppConfig, slug: string, sourceId?: string): Promise<string> {
-  const stdout = await runGBrain(config, ['get', slug, '--body', ...(sourceId ? ['--source-id', sourceId] : [])], Math.min(config.gbrain.timeoutMs, 20000))
+  // 注意：新版 gbrain 的 --body 必须带值（auto/none），否则报 invalid_params
+  const stdout = await runGBrain(config, ['get', slug, '--body', 'auto', ...(sourceId ? ['--source-id', sourceId] : [])], Math.min(config.gbrain.timeoutMs, 20000))
   return stripPageOutput(stdout)
 }
 

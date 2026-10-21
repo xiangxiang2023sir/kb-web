@@ -1442,7 +1442,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!slug) throw new HttpError(400, 'slug 必填')
       const sensitivity = slug.split('/')[1] ?? ''
       if (sensitivity === 'top_secret' && userOf(res)!.role !== 'owner') throw new HttpError(403, '绝密内容只有主人能看')
-      const src = String(req.query.project ?? '').trim() || undefined
+      const src = String(req.query.sourceId ?? req.query.project ?? req.query.source ?? '').trim() || undefined
       const body = await pageBodyGBrain(config, slug, src).catch(() => '')
       if (!body.trim()) throw new HttpError(404, 'GBrain 里没有这一页')
       res.json({ slug, content: body })
@@ -1461,7 +1461,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (sensitivity === 'top_secret' && me.role !== 'owner') {
         throw new HttpError(403, '绝密页面只有主人能删除')
       }
-      const src = String(req.query.project ?? '').trim() || undefined
+      const src = String(req.query.sourceId ?? req.query.project ?? req.query.source ?? '').trim() || undefined
       await deleteGBrainPage(config, slug, src)
       // 清掉登记表里指向这个 slug 的条目（docs 表只做登记，不是知识本体）
       const ids = db.docIdsBySourcePath(slug)

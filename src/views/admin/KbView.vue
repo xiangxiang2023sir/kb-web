@@ -68,7 +68,7 @@
     <el-table :data="list" size="small" v-loading="loading" style="margin-top: 8px">
       <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip>
         <template #default="{ row }">
-          <el-link type="primary" @click="openPage(row.slug)">{{ row.title }}</el-link>
+          <el-link type="primary" @click="openPage(row.slug, row.sourceId)">{{ row.title }}</el-link>
         </template>
       </el-table-column>
       <el-table-column prop="slug" label="slug" min-width="260" show-overflow-tooltip />
@@ -86,7 +86,7 @@
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" text type="primary" @click="openPage(row.slug)">查看</el-button>
+          <el-button size="small" text type="primary" @click="openPage(row.slug, row.sourceId)">查看</el-button>
           <el-button size="small" text type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -177,13 +177,13 @@ function reload() {
   void loadList()
 }
 
-async function openPage(slug: string) {
+async function openPage(slug: string, sourceId?: string) {
   currentSlug.value = slug
   currentBody.value = ''
   detailVisible.value = true
   detailLoading.value = true
   try {
-    const r = await kbApi.page(slug)
+    const r = await kbApi.page(slug, sourceId)
     currentBody.value = r.content
   } catch (e) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '读取正文失败'
@@ -193,7 +193,7 @@ async function openPage(slug: string) {
   }
 }
 
-async function remove(row: { slug: string; title: string }) {
+async function remove(row: { slug: string; title: string; sourceId?: string }) {
   try {
     await ElMessageBox.confirm(
       `确定从知识库里删除「${row.title || row.slug}」？\n会同时删除：页面、检索片段、磁盘上的 md 文件。此操作不可撤销。`,
@@ -204,7 +204,7 @@ async function remove(row: { slug: string; title: string }) {
     return
   }
   try {
-    const r = await kbApi.remove(row.slug)
+    const r = await kbApi.remove(row.slug, row.sourceId)
     ElMessage.success(`已删除（顺带清了 ${r.cleanedDocs} 条登记条目）`)
     detailVisible.value = false
     await Promise.all([loadList(), loadStatus()])

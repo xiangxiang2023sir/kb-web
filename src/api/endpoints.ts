@@ -261,10 +261,14 @@ export const kbApi = {
     http
       .get<{ total: number; page: number; size: number; list: KbPageItem[] }>('/admin/kb/pages', { params })
       .then((r) => r.data),
-  page: (slug: string) =>
-    http.get<{ slug: string; content: string }>('/admin/kb/page', { params: { slug } }).then((r) => r.data),
-  remove: (slug: string) =>
-    http.delete<{ ok: boolean; slug: string; cleanedDocs: number }>('/admin/kb/page', { params: { slug } }).then((r) => r.data),
+  page: (slug: string, sourceId?: string) =>
+    http
+      .get<{ slug: string; content: string }>('/admin/kb/page', { params: { slug, sourceId } })
+      .then((r) => r.data),
+  remove: (slug: string, sourceId?: string) =>
+    http
+      .delete<{ ok: boolean; slug: string; cleanedDocs: number }>('/admin/kb/page', { params: { slug, sourceId } })
+      .then((r) => r.data),
 }
 
 export interface ProjectItem {
