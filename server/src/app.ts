@@ -1268,6 +1268,34 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       )
       const out = collected.result()
       if (out.error && !out.answer) throw new HttpError(502, out.error)
+      // 外部通道问不到资料 → 自动进问题队列（同人同问题 24h 内只入一次）
+      let queued = false
+      let queuedId: string | null = null
+      // 「答不上来」的判定：无资料阶段 / 没引用 / 答案里就是"没找到资料"那句话
+      // 只有"答案开头就是在说没资料"才算答不上来（避免正常的"未提及"误判）
+      const head = String(out.answer ?? '').trim().slice(0, 80)
+      const noAnswer =
+        out.phase === 'no_evidence' ||
+        (out.citations ?? []).length === 0 ||
+        /^(资料未给出|知识库中没有|没有找到与该问题|资料中未提及|未找到相关|无法回答|暂无相关)/.test(head)
+      if (config.questions?.autoQueueFromAgent !== false && noAnswer) {
+        const hours = Number(config.questions?.dedupeHours ?? 24)
+        if (!db.recentQuestionExists(user.id, query, hours)) {
+          queuedId = newId('q')
+          db.insertQuestion({
+            id: queuedId,
+            question: query,
+            askedBy: user.name,
+            askedById: user.id,
+            field: guessField(query, config),
+            status: 'open',
+            sessionId: out.sessionId || sessionId,
+            context: `外部通道提问（${caller.label || 'agent'}）`,
+            createdAt: new Date().toISOString(),
+          })
+          queued = true
+        }
+      }
       res.json({
         ok: true,
         user: user.name,
@@ -1275,6 +1303,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         answer: out.answer,
         phase: out.phase,
         citations: out.citations,
+        queued,
+        questionId: queuedId,
       })
     }),
   )

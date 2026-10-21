@@ -93,3 +93,8 @@ auth:
 # 飞书：密钥写 server/.env。群里默认只回复 @机器人。
 feishu:
   groupOnlyMention: true
+
+# 外部通道（飞书/豆包等 agent）问不到资料时，自动进问题队列
+questions:
+  autoQueueFromAgent: true
+  dedupeHours: 24

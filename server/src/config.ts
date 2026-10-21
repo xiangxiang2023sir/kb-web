@@ -38,6 +38,12 @@ export interface AppConfig {
   }
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
+  questions?: {
+    /** 外部通道（agent/飞书）问不到资料时，自动进问题队列 */
+    autoQueueFromAgent?: boolean
+    /** 同人同问题多少小时内不重复入队 */
+    dedupeHours?: number
+  }
   chat: {
     phrases: string[]
     fallback: string
@@ -201,6 +207,10 @@ export function loadConfig(): AppConfig {
       classify: read('classify.md'),
       vision: read('vision.md'),
       chat: read('chat.md'),
+    },
+    questions: {
+      autoQueueFromAgent: raw.questions?.autoQueueFromAgent !== false,
+      dedupeHours: Number(raw.questions?.dedupeHours ?? 24),
     },
     feishu: { groupOnlyMention: raw.feishu?.groupOnlyMention !== false },
   }
