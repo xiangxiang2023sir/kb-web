@@ -3,9 +3,9 @@ import type { WebSocket } from 'ws'
 import { canSee, canSeeInProject, parseSlug, type ProjectRole } from './access.js'
 import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User } from './config.js'
 import { KbDb, newId } from './db.js'
-import { GBrainError, pageBodyGBrain, searchGBrain, searchGBrainMulti } from './gbrain.js'
+import { GBrainError, pageBodyGBrain, searchGBrainMulti } from './gbrain.js'
 import { describeImages, LlmError, streamAnswer } from './llm.js'
-import { isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from './text.js'
+import { isSmallTalk, searchQueryOf, searchTermsOf } from './text.js'
 
 export interface AskMessage {
   type: 'ask'
@@ -207,8 +207,8 @@ export async function runAsk(
 
   // 已按主人要求取消「陈述句=告知」的模糊判断：
   // 除打招呼外一律检索；入库只认明确触发词（入库 / 记一下 / 存一下，前端拦截）
-  const stripped = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
-  const query = searchTermsOf(stripped)
+  // 语义检索（bge-m3）要整句，不要二字组袋子。拆词只在 0 命中时补查。
+  const query = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
   const hits = await collectHits(
     config,
     user,
@@ -303,7 +303,7 @@ interface KeptHit {
 
 /**
  * 检索三步：
- * 1) GBrain 关键词检索，按领域/密级过滤，攒够 rerankCandidates 条候选；
+ * 1) 用去口语后的原句做 GBrain 语义检索，按领域/密级/项目过滤；
  * 2) 候选逐条读整页正文（search 只给一片 chunk，结论常在页面后段）；
  * 3) 用「归一化 GBrain 分 + 整页命中覆盖率」重排，取前 keep 条给模型。
  */
@@ -349,13 +349,10 @@ async function collectHits(
       if (candidates.length >= want) break
     }
   }
-  // 关键：query 是 searchTermsOf 产出的「空格连接的词串」，
-  // 整串丢给 gbrain 会被当成一个短语 → 中文必然 0 命中（2026-10-21 实测）
-  // ⇒ 候选不足时逐词单独检索，再按 slug 合并取最高分
-  // 只在首轮一条都没拿到时才拆词补查：
-  // 语义检索已经能返回结果时，再拆词会把各词的高分页混进来，反而把真正相关的页挤出候选
+  // 首轮用原句走语义；一条都没有时再拆成关键词补查（型号优先，其次二字组）。
+  // 语义已经有结果时不要拆：二字组会把无关高分页挤进 keep。
   if (candidates.length === 0) {
-    const all = query.split(/\s+/).filter(Boolean)
+    const all = searchTermsOf(query).split(/\s+/).filter(Boolean)
     // 型号/英文词优先，其次 2 字词（实测 3 字词常命不中）
     const rank = (w: string) => (/[A-Za-z0-9]/.test(w) ? 0 : w.length === 2 ? 1 : 2)
     const terms = [...all].sort((a, b) => rank(a) - rank(b)).slice(0, 8)
@@ -387,7 +384,7 @@ async function collectHits(
 
   await fillBodies(config, candidates, sources)
 
-  const terms = query.split(/\s+/).filter(Boolean)
+  const terms = (searchTermsOf(query) || query).split(/\s+/).filter(Boolean)
   const weightOf = (term: string) => (term.length >= 4 ? 3 : term.length === 3 ? 2 : 1)
   const totalWeight = terms.reduce((sum, term) => sum + weightOf(term), 0) || 1
   const maxScore = candidates.reduce((max, hit) => Math.max(max, hit.score), 0) || 1

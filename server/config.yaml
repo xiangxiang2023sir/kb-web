@@ -98,8 +98,9 @@ feishu:
 questions:
   autoQueueFromAgent: true
   dedupeHours: 24
-  requireFullAccess: true
+  # true=权限看不全全部项目时不入队。默认 false：照样入队，响应里带 permissionLimited。
+  requireFullAccess: false
 
-# 外部 agent 的可见性：false=按账号权限（默认）；true=只看 public/internal
+# 外部 agent 默认只带 public/internal，机密不出云端。要按账号放行就改 false。
 agent:
-  publicOnlyOnly: false
+  restrictToInternal: true

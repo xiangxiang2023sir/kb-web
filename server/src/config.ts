@@ -39,15 +39,15 @@ export interface AppConfig {
   confidence: { highMin: number; mediumMin: number }
   noEvidence: { text: string; score: number }
   agent?: {
-    /** true=外部 agent 只看 public/internal（默认 false，按账号权限） */
-    publicOnlyOnly?: boolean
+    /** true=外部 agent 只看 public/internal，机密不出云端（默认 true） */
+    restrictToInternal?: boolean
   }
   questions?: {
     /** 外部通道（agent/飞书）问不到资料时，自动进问题队列 */
     autoQueueFromAgent?: boolean
     /** 同人同问题多少小时内不重复入队 */
     dedupeHours?: number
-    /** 只有能看到全部活跃项目时才自动入队（权限受限不入队） */
+    /** true=只有能看到全部活跃项目才自动入队；默认 false，受限也入队并打 permissionLimited */
     requireFullAccess?: boolean
   }
   chat: {
@@ -120,6 +120,13 @@ export function loadEnvFile() {
     }
     if (process.env[key] === undefined) process.env[key] = value
   }
+}
+
+/** 外部 agent 默认压掉 confidential / top_secret。旧键 publicOnlyOnly 仍认。 */
+function agentRestrictToInternal(agent: { restrictToInternal?: unknown; publicOnlyOnly?: unknown } | undefined): boolean {
+  if (agent?.restrictToInternal != null) return agent.restrictToInternal !== false
+  if (agent?.publicOnlyOnly != null) return agent.publicOnlyOnly === true
+  return true
 }
 
 export function loadConfig(): AppConfig {
@@ -217,9 +224,9 @@ export function loadConfig(): AppConfig {
     questions: {
       autoQueueFromAgent: raw.questions?.autoQueueFromAgent !== false,
       dedupeHours: Number(raw.questions?.dedupeHours ?? 24),
-      requireFullAccess: raw.questions?.requireFullAccess !== false,
+      requireFullAccess: raw.questions?.requireFullAccess === true,
     },
-    agent: { publicOnlyOnly: raw.agent?.publicOnlyOnly === true },
+    agent: { restrictToInternal: agentRestrictToInternal(raw.agent) },
     feishu: { groupOnlyMention: raw.feishu?.groupOnlyMention !== false },
   }
 }

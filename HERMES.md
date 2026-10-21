@@ -86,7 +86,7 @@ systemctl --user list-timers kb-daily-cleanup.timer
 
 ## agent 写入接口（跨机 / 容器里的 agent 用这个）
 
-不用装 gbrain CLI，也不要用网页登录态。每个 agent 一个 token（`server/.env` 的 `AGENT_TOKENS=名字:token,名字:token`）。
+不用装 gbrain CLI，也不要用网页登录态。用网页「绑定外部 agent」下载的个人钥匙（`kb_…`）。全局 `AGENT_TOKENS` 已停用。
 
 ```bash
 curl -X POST http://<kb-web 地址>/api/agent/capture \
@@ -132,7 +132,7 @@ curl -X POST http://127.0.0.1:3000/api/agent/ask \
 ```
 
 **安全口径**
-- 车间每人一把 `kb_` 钥匙（写在 Skill 里）；`AGENT_TOKENS` 只给 Hermes / 小A 这类服务端脚本
+- 车间每人一把 `kb_` 钥匙（写在 Skill 里）；没有第二套全局令牌
 - 没有钥匙或钥匙已作废一律 401，不会退化成匿名可查
 - 内容出网分级：对外部云平台只放 public/internal
 - kb-web 自建飞书应用号不再问答，只提示用智能体；「记一下」仍可进待确认

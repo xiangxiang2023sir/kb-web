@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { homedir } from 'node:os'
 import type { AppConfig } from './config.js'
 
 export class GBrainError extends Error {
@@ -24,7 +25,15 @@ export function runGBrain(config: AppConfig, args: string[], timeoutMs = config.
     let child
     if (process.env.KB_DEBUG_GBRAIN === '1') console.error(`[gb] RUN ${command} ${full.join(' ').slice(0, 400)}`)
     try {
-      child = spawn(command, full, { shell: false, windowsHide: true })
+      // stdin 关掉：避免非 TTY 下升级提示拖住查询向量的 6 秒预算。
+      // cwd 指 HOME：和手工 shell 同一份 PGLite，不跟 kb-web 的工作目录走。
+      child = spawn(command, full, {
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: process.env,
+        cwd: process.env.HOME || homedir(),
+      })
     } catch (err) {
       reject(new GBrainError(`无法启动 GBrain（${command}）：${(err as Error).message}`))
       return
@@ -63,6 +72,9 @@ export function runGBrain(config: AppConfig, args: string[], timeoutMs = config.
         console.error(`[gb] DONE code=${code} len=${stdout.length} ${j ? 'head=' + j.replace(/\s+/g, ' ') : ''}`)
       }
       const stderr = Buffer.concat(err).toString('utf8').trim()
+      if (stderr && /embed_timeout|DEGRADED|query embed/i.test(stderr)) {
+        console.error(`[gb] stderr ${stderr.slice(0, 800)}`)
+      }
       if (code !== 0) {
         // GBrain 出错时有时把 JSON 错误写在 stdout、stderr 为空，尽量取出 message
         let detail = stderr
@@ -97,6 +109,24 @@ function parseJson(stdout: string): unknown {
   }
 }
 
+/** 查询向量超时会静默改走关键词，必须把 _meta 打出来才能对上手工 CLI。 */
+function retrievalMetaOf(parsed: unknown): { degraded: unknown[]; vectorEnabled: boolean | null; cache: string } {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { degraded: [], vectorEnabled: null, cache: '-' }
+  }
+  const meta = (parsed as { _meta?: { retrieval?: Record<string, unknown> } })._meta?.retrieval
+  if (!meta) return { degraded: [], vectorEnabled: null, cache: '-' }
+  const degraded = Array.isArray(meta.degraded) ? meta.degraded : []
+  const cache = meta.cache
+  const cacheStatus =
+    typeof cache === 'string' ? cache : cache && typeof cache === 'object' && 'status' in cache ? String((cache as { status?: unknown }).status ?? '-') : '-'
+  return {
+    degraded,
+    vectorEnabled: typeof meta.vector_enabled === 'boolean' ? meta.vector_enabled : null,
+    cache: cacheStatus,
+  }
+}
+
 export async function searchGBrain(
   config: AppConfig,
   query: string,
@@ -107,9 +137,12 @@ export async function searchGBrain(
   const stdout = await runGBrain(config, ['search', query, '--limit', String(limit), '--offset', String(offset), '--json', ...(sourceId ? ['--source-id', sourceId] : [])])
   const parsed = parseJson(stdout)
   const rows = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { results?: unknown })?.results) ? (parsed as { results: unknown[] }).results : []
-  if (process.env.KB_DEBUG_GBRAIN === '1') {
+  const retrieval = retrievalMetaOf(parsed)
+  if (retrieval.degraded.length || process.env.KB_DEBUG_GBRAIN === '1') {
     const sl = (rows as Record<string, unknown>[]).slice(0, 4).map((r) => `${Number(r.score ?? 0).toFixed(3)}:${String(r.slug ?? '').slice(-40)}`)
-    console.error(`[gb] SRC=${sourceId ?? '-'} rows=${rows.length} q="${query.slice(0, 30)}" top=${sl.join(' , ')}`)
+    console.error(
+      `[gb] SRC=${sourceId ?? '-'} rows=${rows.length} vector=${retrieval.vectorEnabled} cache=${retrieval.cache} degraded=${JSON.stringify(retrieval.degraded)} q="${query.slice(0, 40)}" top=${sl.join(' , ')}`,
+    )
   }
   return rows
     .map((row) => {

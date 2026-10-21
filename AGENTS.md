@@ -9,7 +9,7 @@
 
 **现在要能：**
 
-- 按角色看知识（主人 / 管理员 / 操作员按领域 / 游客仅公开）
+- 按角色和项目看知识（主人全见；管理员不见 top_secret；操作员看所在项目；游客仅公开）
 - 把规程文档解析后入库到 GBrain，对话时检索再回答，并带出处
 - 答不了的问题转入问题队列，由责任人解答后再入库
 - 打招呼可以正常说话；问设备/规程没有资料时不要编造
@@ -31,12 +31,12 @@
 - 前端：`src/`（Vue 3 + Pinia + Element Plus）。`npm run dev` 是 Mock；`npm run dev:real` 走真实后端。
 - 后端：`server/src/`（Express + WebSocket）。配置 `server/config.yaml`，密钥 `server/.env`（不要提交）。
 - 知识库：本机 GBrain（PGLite）。slug 约定 `{field}/{sensitivity}/{name}`，例如 `electrical/internal/inverter-f009`。
-- 权限：按 slug 前缀过滤。主人全见；管理员不见 top_secret；操作员仅本领域；游客仅 public。
+- 权限：slug `{领域/密级/名字}` + 项目成员。主人全见；管理员不见 top_secret；操作员看所在项目；游客仅 public。外部 agent 默认只带 public/internal（`config.yaml` → `agent.restrictToInternal`）。
 
 问答固定流水线（不要改成多轮选工具的 Agent）：
 
 1. 闲聊整句（`config.yaml` → `chat.phrases`）→ 闲聊提示词，不检索
-2. 否则 GBrain `search` → 按登录人过滤 slug
+2. 否则把去口语后的原句交给 GBrain `search`（语义；0 命中才拆词补查）→ 按登录人和项目过滤 slug
 3. 有命中 → 模型只根据资料写回答（带 `[1]`）
 4. 没命中 → 固定「没有资料」文案，转入问题队列；不推测
 
@@ -45,7 +45,7 @@
 ## agent 写入接口（2026-10-19）
 
 `POST /api/agent/capture`：给**不在本机/在容器里**的 agent 用的知识入库入口。
-- 鉴权：网页下载的 Skill 个人钥匙（`kb_…`），或 `server/.env` 的 `AGENT_TOKENS`（Hermes / 小A）
+- 鉴权：网页「绑定外部 agent」下载 Skill 里的个人钥匙（`kb_…`）。没有第二套全局令牌。
 - 入参：`{title, content(markdown), field?, kind?}` → **只写「待确认」**，永远不直接进正式库
 - 去重：同标题返回 `duplicate:true`；密级强制 internal；内容上限 200KB
 - 与网页「对话沉淀」、`server/scripts/submit-summary.ts` 三者殊途同归：都落在待确认
@@ -140,3 +140,5 @@
 - 把 parseJson / 检索词用「逐行修 JSON」这类脆弱逻辑
 - 为了多格式把 Word/Excel 解析交给未约束的 Agent 作为默认入库
 - 提交 `server/.env`、`server/data/`
+- 把 kb-web 问答接到 `gbrain serve --http`（那是 MCP + OAuth，不是 REST；问答继续 CLI spawn）
+- 把中文问句拆成二字组当语义查询（bge-m3 要整句）

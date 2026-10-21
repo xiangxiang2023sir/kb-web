@@ -1264,9 +1264,9 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         { type: 'ask', questionId: newId('q'), question: query, sessionId },
         collected.emit,
         undefined,
-        // 默认按账号权限判（confidential 给有权限的账号）；想一刀切屏蔽就设 agent.publicOnlyOnly=true
+        // 默认只带 public/internal；要按账号放机密就设 agent.restrictToInternal=false
         {
-          publicOnly: config.agent?.publicOnlyOnly === true,
+          publicOnly: config.agent?.restrictToInternal !== false,
           source: 'agent',
           sources: scope.sources,
           projectRole: scope.projectRole,
@@ -1289,11 +1289,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         out.phase === 'no_evidence' ||
         (out.citations ?? []).length === 0 ||
         /^(?:本次|这次|该问题|这个问题)?\s*(?:资料未给出|资料中没有|知识库中没有|没有找到与该问题|资料中未提及|未找到相关|无法回答|暂无相关|资料不涉及)/.test(head)
-      // 权限受限导致的"答不上来"不算知识缺口：账号不是全部活跃项目成员时不入队
       const activeProjects = db.listProjects().filter((pj) => pj.status === 'active').map((pj) => pj.id)
       const myProjects = user.role === 'owner' ? activeProjects : db.projectsOfUser(user.id)
-      const limitedAccess = config.questions?.requireFullAccess !== false && activeProjects.some((id) => !myProjects.includes(id))
-      if (config.questions?.autoQueueFromAgent !== false && noAnswer && !limitedAccess) {
+      const limitedAccess = user.role !== 'owner' && activeProjects.some((id) => !myProjects.includes(id))
+      const skipQueue = config.questions?.requireFullAccess === true && limitedAccess
+      if (config.questions?.autoQueueFromAgent !== false && noAnswer && !skipQueue) {
         const hours = Number(config.questions?.dedupeHours ?? 24)
         if (!db.recentQuestionExists(user.id, query, hours)) {
           queuedId = newId('q')

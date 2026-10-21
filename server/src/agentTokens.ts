@@ -1,7 +1,5 @@
 /**
- * agent 写入接口的 token。
- * 格式（server/.env）：AGENT_TOKENS=xiaoa:<token>,xiaoc:<token>
- * 只为「经验/总结入库」这一个用途，写进去永远是「待确认」，要人确认才进正式库。
+ * 请求头里的 Bearer。全局 AGENT_TOKENS 已停用，外部 agent 只认网页下发的个人钥匙。
  */
 export interface AgentToken {
   name: string
