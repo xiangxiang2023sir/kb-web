@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import type { WebSocket } from 'ws'
-import { canSee, canSeeInProject, parseSlug, type ProjectRole } from './access.js'
+import { pageVisible, parseSlug, type ProjectRole } from './access.js'
 import { confidenceOf, type AppConfig, type Field, type Sensitivity, type User } from './config.js'
 import { KbDb, newId } from './db.js'
 import { GBrainError, pageBodyGBrain, searchGBrainMulti } from './gbrain.js'
@@ -205,6 +205,7 @@ export async function runAsk(
   // 除打招呼外一律检索；入库只认明确触发词（入库 / 记一下 / 存一下，前端拦截）
   // 语义检索（bge-m3）要整句，不要二字组袋子。拆词只在 0 命中时补查。
   const query = searchQueryOf(question, config.search.questionPhrases) || searchQueryOf(photoNote, config.search.questionPhrases)
+  const sourceRoles = opts?.projectRole === undefined ? db.sourceRolesFor(user) : undefined
   const hits = await collectHits(
     config,
     user,
@@ -212,6 +213,7 @@ export async function runAsk(
     opts?.publicOnly === true,
     opts?.sources,
     opts?.projectRole,
+    sourceRoles,
   )
 
   if (hits.length === 0) {
@@ -316,6 +318,7 @@ async function collectHits(
   publicOnly = false,
   sources?: string[],
   projectRole?: ProjectRole | null,
+  sourceRoles?: ReadonlyMap<string, ProjectRole>,
 ) {
   const want = Math.max(config.search.rerankCandidates, config.search.keep)
   const allow = sources ?? []
@@ -338,10 +341,11 @@ async function collectHits(
       return
     }
     if (seen.has(row.slug)) return
-    const visible =
-      projectRole === undefined
-        ? canSee(user, parsed.field, parsed.sensitivity)
-        : canSeeInProject(user.role, projectRole, parsed.sensitivity)
+    const visible = pageVisible(user, parsed.field, parsed.sensitivity, {
+      projectRole,
+      sourceId: row.sourceId,
+      sourceRoles,
+    })
     if (!visible) {
       dropped.push(`acl:${row.slug}`)
       return
@@ -355,9 +359,11 @@ async function collectHits(
   }
   for (const row of rawRows) passRow(row)
 
-  console.error(`[hits] TRACE query=${JSON.stringify(query)} sources=${allow.join(',') || '-'} publicOnly=${publicOnly} projectRole=${projectRole ?? 'canSee'} user=${user.name}/${user.role}`)
-  console.error(`[hits] TRACE rawTop=${rawRows.slice(0, 5).map(hitLabel).join(' | ') || '(empty)'}`)
-  console.error(`[hits] TRACE afterAcl=${candidates.slice(0, 8).map(hitLabel).join(' | ') || '(empty)'} dropped=${dropped.slice(0, 8).join(',') || '0'}`)
+  if (process.env.KB_DEBUG_HITS === '1') {
+    console.error(`[hits] TRACE query=${JSON.stringify(query)} sources=${allow.join(',') || '-'} publicOnly=${publicOnly} projectRole=${projectRole ?? 'canSee'} user=${user.name}/${user.role}`)
+    console.error(`[hits] TRACE rawTop=${rawRows.slice(0, 5).map(hitLabel).join(' | ') || '(empty)'}`)
+    console.error(`[hits] TRACE afterAcl=${candidates.slice(0, 8).map(hitLabel).join(' | ') || '(empty)'} dropped=${dropped.slice(0, 8).join(',') || '0'}`)
+  }
 
   // 首轮用原句走语义；一条都没有时再拆成关键词补查（型号优先，其次二字组）。
   // 必须串行 spawn：并行会抢 PGLite。
@@ -373,7 +379,7 @@ async function collectHits(
     if (candidates.length > want) candidates.length = want
   }
   if (candidates.length === 0) {
-    console.error('[hits] TRACE final=(empty)')
+    if (process.env.KB_DEBUG_HITS === '1') console.error('[hits] TRACE final=(empty)')
     return candidates
   }
 
@@ -408,38 +414,26 @@ async function collectHits(
     kept = filtered.length > 0 ? filtered : candidates.slice(0, 1)
   }
   kept = kept.slice(0, config.search.keep)
-  console.error(`[hits] TRACE final=${kept.map(hitLabel).join(' | ') || '(empty)'}`)
+  if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] TRACE final=${kept.map(hitLabel).join(' | ') || '(empty)'}`)
   await fillBodies(config, kept, sources)
   return kept
 }
 
-/** 并发读整页，单个页面失败不影响其余候选。 */
+/** 串行读整页。PGLite 同时只能有一个进程，并行 get 会空正文。 */
 async function fillBodies(config: AppConfig, hits: KeptHit[], sources?: string[]) {
-  const queue = [...hits]
-  const worker = async () => {
-    for (;;) {
-      const hit = queue.shift()
-      if (!hit) return
+  for (const hit of hits) {
+    let body = ''
+    for (const s of sources && sources.length ? sources : [undefined]) {
       try {
-        // 逐源试读正文（多源模式下不知道页在哪个源）
-        let body = ''
-        for (const s of sources && sources.length ? sources : [undefined]) {
-          try {
-            body = await pageBodyGBrain(config, hit.slug, s as string | undefined)
-            if (body.trim()) break
-          } catch {
-            /* 换下一个源 */
-          }
-        }
-        hit.body = body
-        if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] BODY ${hit.slug} len=${body.length}`)
+        body = await pageBodyGBrain(config, hit.slug, s as string | undefined)
+        if (body.trim()) break
       } catch {
-        hit.body = ''
-        if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] BODY-FAIL ${hit.slug}`)
+        /* 换下一个源 */
       }
     }
+    hit.body = body
+    if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] BODY ${hit.slug} len=${body.length}`)
   }
-  await Promise.all(Array.from({ length: Math.min(4, hits.length) }, worker))
 }
 
 /**

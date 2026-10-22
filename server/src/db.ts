@@ -117,8 +117,11 @@ export class KbDb {
     }
   }
 
-  findUserById(id: string): User | null {
-    return userOf(this.one(`SELECT id, name, employee_no, role, field FROM users WHERE id = ?`, id))
+  findUserById(id: string): (User & { employeeNo: string | null }) | null {
+    const row = this.one(`SELECT id, name, employee_no, role, field FROM users WHERE id = ?`, id)
+    const user = userOf(row)
+    if (!user || !row) return null
+    return { ...user, employeeNo: row.employee_no == null ? null : String(row.employee_no) }
   }
 
   /** 改工号（登录名） */
@@ -126,9 +129,9 @@ export class KbDb {
     this.run(`UPDATE users SET employee_no = ? WHERE id = ?`, employeeNo, userId)
   }
 
-  listUsers(): User[] {
+  listUsers(): (User & { employeeNo: string | null })[] {
     return this.many(`SELECT id, name, employee_no, role, field FROM users WHERE role != 'guest' ORDER BY name`).map(
-      (r) => userOf(r)!,
+      (r) => ({ ...userOf(r)!, employeeNo: r.employee_no == null ? null : String(r.employee_no) }),
     )
   }
 
@@ -630,6 +633,27 @@ export class KbDb {
     return p?.kbSource || projectId
   }
 
+  /** 分区 id → 此人在共用该分区的项目里的最高角色。default 不放入。 */
+  sourceRolesFor(user: { id: string; role: string }): Map<string, 'lead' | 'member'> {
+    const rank = (role: 'lead' | 'member') => (role === 'lead' ? 2 : 1)
+    const map = new Map<string, 'lead' | 'member'>()
+    const ids =
+      user.role === 'owner'
+        ? this.listProjects()
+            .filter((p) => p.status === 'active')
+            .map((p) => p.id)
+        : this.projectsOfUser(user.id)
+    for (const id of ids) {
+      const src = this.kbSourceOf(id)
+      if (!src || src === 'default') continue
+      const role: 'lead' | 'member' =
+        user.role === 'owner' ? 'lead' : this.projectRoleOf(id, user.id) === 'lead' ? 'lead' : 'member'
+      const prev = map.get(src)
+      if (!prev || rank(role) > rank(prev)) map.set(src, role)
+    }
+    return map
+  }
+
   /** 去重后的 GBrain source 列表；主人看全部 active，其他人看自己参与的。默认带 default。 */
   searchSourcesFor(user: { id: string; role: string }): string[] {
     const ids =
@@ -711,9 +735,9 @@ export class KbDb {
     this.run(`DELETE FROM docs WHERE id = ?`, id)
   }
 
-  /** 按 GBrain slug（存在 source_path 里）找登记条目 */
-  docIdsBySourcePath(slug: string): string[] {
-    return this.many(`SELECT id FROM docs WHERE source_path = ?`, slug).map((r) => String(r.id))
+  /** 按 slug 找登记。确认入库写在 slug 列，从 GBrain 同步来的写在 source_path。 */
+  docIdsForSlug(slug: string): string[] {
+    return this.many(`SELECT id FROM docs WHERE slug = ? OR source_path = ?`, slug, slug).map((r) => String(r.id))
   }
 
   /** 删用户：连带清掉会话与外部身份绑定 */

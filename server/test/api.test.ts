@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
-import { canSee, parseSlug } from '../src/access.js'
+import { canSee, pageVisible, parseSlug } from '../src/access.js'
 import { diversifyHitsBySource, isMissingGBrainSourceError, missingKbSourceMessage, parseSourcesList } from '../src/gbrain.js'
 import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
 import { confidenceOf, type AppConfig } from '../src/config.js'
 import { openDb } from '../src/db.js'
-import { coverageTermsOf, decodeUploadName, extractText, isSmallTalk, looksLikeStatement, searchQueryOf, searchTermsOf } from '../src/text.js'
+import { coverageTermsOf, decodeUploadName, extractText, isSmallTalk, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -41,13 +41,61 @@ test('打招呼不走知识库检索', () => {
   assert.equal(isSmallTalk('你好，液压油怎么换', phrases), false)
 })
 
-test('设备短问仍走检索，陈述才当告知', () => {
-  const words = ['怎么', '如何', '吗']
-  assert.equal(looksLikeStatement('F009 过载', words), false)
-  assert.equal(looksLikeStatement('液压油更换周期', words), false)
-  assert.equal(looksLikeStatement('变频器过载怎么处理', words), false)
-  assert.equal(looksLikeStatement('我改成了 0.5 米每秒，记录一下', words), true)
-  assert.equal(looksLikeStatement('告知：行走速度改成 0.5', words), true)
+test('没选项目时，项目分区按成员角色，不按领域放行机密', () => {
+  const wang = { id: 'u3', name: 'wang', role: 'operator' as const, field: 'electrical' as const }
+  const roles = new Map([['p-amr01', 'member' as const]])
+  assert.equal(pageVisible(wang, 'electrical', 'confidential', { sourceId: 'p-amr01', sourceRoles: roles }), false)
+  assert.equal(pageVisible(wang, 'electrical', 'internal', { sourceId: 'p-amr01', sourceRoles: roles }), true)
+  assert.equal(pageVisible(wang, 'electrical', 'confidential', { sourceId: 'default', sourceRoles: roles }), true)
+  assert.equal(pageVisible(wang, 'mechanical', 'internal', { sourceId: 'default', sourceRoles: roles }), false)
+  assert.equal(pageVisible(wang, 'electrical', 'confidential', { projectRole: 'lead' }), true)
+})
+
+test('用户列表带工号，删除页能按 slug 找到登记', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-acl-'))
+  const db = openDb(join(dir, 't.sqlite'))
+  try {
+    const owner = db.listUsers().find((u) => u.name === 'owner')
+    assert.equal(owner?.employeeNo, 'owner')
+    const now = new Date().toISOString()
+    db.insertDoc({
+      id: 'd1',
+      title: '规程',
+      field: 'electrical',
+      sensitivity: 'internal',
+      status: 'pending',
+      suggestedField: 'electrical',
+      suggestedSensitivity: 'internal',
+      content: '正文',
+      updatedAt: now,
+      sourcePath: 'E:/inbox/a.docx',
+    })
+    db.confirmDoc('d1', 'electrical', 'internal', 'electrical/internal/a', '正文', now)
+    db.insertDoc({
+      id: 'd2',
+      title: '同步页',
+      field: 'electrical',
+      sensitivity: 'internal',
+      status: 'confirmed',
+      suggestedField: 'electrical',
+      suggestedSensitivity: 'internal',
+      content: '',
+      updatedAt: now,
+      sourcePath: 'electrical/internal/synced',
+    })
+    assert.deepEqual(db.docIdsForSlug('electrical/internal/a'), ['d1'])
+    assert.deepEqual(db.docIdsForSlug('electrical/internal/synced'), ['d2'])
+    db.insertProject({ id: 'p-a', name: 'A', kbSource: 'tools' })
+    db.insertProject({ id: 'p-b', name: 'B', kbSource: 'tools' })
+    db.addProjectMember('p-a', 'u3', 'member')
+    db.addProjectMember('p-b', 'u3', 'lead')
+    const wang = db.findUserById('u3')
+    assert.equal(wang?.employeeNo, 'wang')
+    assert.equal(db.sourceRolesFor(wang!).get('tools'), 'lead')
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('疑问说法不进入检索词', () => {

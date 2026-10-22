@@ -46,3 +46,27 @@ export function canSeeInProject(
   if (projectRole === 'member') return sensitivity === 'public' || sensitivity === 'internal'
   return sensitivity === 'public' || sensitivity === 'internal' || sensitivity === 'confidential'
 }
+
+/**
+ * 选了项目就用项目角色。没选时：项目分区用该分区里的角色，公共库 default 用领域规则。
+ * shortcut: 命中没有 source_id 时按领域判断，检索结果都带来源后再按项目角色收紧。
+ */
+export function pageVisible(
+  user: User,
+  field: Field,
+  sensitivity: Sensitivity,
+  opts: {
+    projectRole?: ProjectRole | null
+    sourceId?: string
+    sourceRoles?: ReadonlyMap<string, ProjectRole>
+  },
+): boolean {
+  const role =
+    opts.projectRole !== undefined
+      ? opts.projectRole
+      : opts.sourceId && opts.sourceId !== 'default'
+        ? (opts.sourceRoles?.get(opts.sourceId) ?? null)
+        : undefined
+  if (role === undefined) return canSee(user, field, sensitivity)
+  return canSeeInProject(user.role, role, sensitivity)
+}

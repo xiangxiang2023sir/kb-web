@@ -246,18 +246,18 @@ export function parseSourcesList(raw: unknown): GBrainSourceRow[] {
     : raw && typeof raw === 'object' && Array.isArray((raw as { sources?: unknown }).sources)
       ? (raw as { sources: unknown[] }).sources
       : []
-  return rows
-    .map((row) => {
-      const r = row as Record<string, unknown>
-      const id = String(r.id ?? r.source_id ?? '').trim()
-      if (!id) return null
-      return {
-        id,
-        localPath: r.local_path == null ? undefined : String(r.local_path),
-        pageCount: typeof r.page_count === 'number' ? r.page_count : undefined,
-      }
+  const out: GBrainSourceRow[] = []
+  for (const row of rows) {
+    const r = row as Record<string, unknown>
+    const id = String(r.id ?? r.source_id ?? '').trim()
+    if (!id) continue
+    out.push({
+      id,
+      localPath: r.local_path == null ? undefined : String(r.local_path),
+      pageCount: typeof r.page_count === 'number' ? r.page_count : undefined,
     })
-    .filter((x): x is GBrainSourceRow => Boolean(x))
+  }
+  return out
 }
 
 export function missingKbSourceMessage(projectName: string, sourceId: string): string {
@@ -399,28 +399,40 @@ export interface GBrainPageFull {
   sourceId: string
 }
 
-/** gbrain list --json → 带类型和更新时间的完整清单 */
-export async function listGBrainFull(config: AppConfig, sourceId = '__all__'): Promise<GBrainPageFull[]> {
-  const raw = await runGBrain(
-    config,
-    ['list', '--limit', '1000', '--json', '--source-id', sourceId],
-    Math.max(config.gbrain.timeoutMs, 120000),
-  )
-  try {
-    const rows = JSON.parse(raw) as { slug?: string; title?: string; type?: string; updated_at?: string; source_id?: string }[]
-    return rows
-      .filter((r) => r.slug)
-      .map((r) => ({
-        slug: String(r.slug),
-        title: String(r.title ?? r.slug),
-        type: String(r.type ?? 'page'),
-        updatedAt: r.updated_at ? String(r.updated_at) : null,
-        sourceId: String(r.source_id ?? 'default'),
-      }))
-  } catch {
-    const plain = await listGBrain(config)
-    return plain.map((p) => ({ slug: p.slug, title: p.title, type: 'page', updatedAt: null, sourceId: 'default' }))
+function pageFullOf(row: { slug?: string; title?: string; type?: string; updated_at?: string; source_id?: string }): GBrainPageFull {
+  return {
+    slug: String(row.slug),
+    title: String(row.title ?? row.slug),
+    type: String(row.type ?? 'page'),
+    updatedAt: row.updated_at ? String(row.updated_at) : null,
+    sourceId: String(row.source_id ?? 'default'),
   }
+}
+
+/** gbrain list --json。一页 1000 条，取到不足一页为止。 */
+export async function listGBrainFull(config: AppConfig, sourceId = '__all__'): Promise<GBrainPageFull[]> {
+  const pageSize = 1000
+  const all: GBrainPageFull[] = []
+  for (let offset = 0; offset < 50_000; offset += pageSize) {
+    const raw = await runGBrain(
+      config,
+      ['list', '--limit', String(pageSize), '--offset', String(offset), '--json', '--source-id', sourceId],
+      Math.max(config.gbrain.timeoutMs, 120000),
+    )
+    let rows: GBrainPageFull[]
+    try {
+      const parsed = JSON.parse(raw) as { slug?: string; title?: string; type?: string; updated_at?: string; source_id?: string }[]
+      if (!Array.isArray(parsed)) throw new Error('list 不是数组')
+      rows = parsed.filter((r) => r.slug).map(pageFullOf)
+    } catch {
+      if (offset > 0) break
+      const plain = await listGBrain(config)
+      return plain.map((p) => ({ slug: p.slug, title: p.title, type: 'page', updatedAt: null, sourceId: 'default' }))
+    }
+    all.push(...rows)
+    if (rows.length < pageSize) break
+  }
+  return all
 }
 
 /** 删一个页（硬删：行 + 分块 + 磁盘 md 一起） */
@@ -449,16 +461,16 @@ export async function searchGBrainMulti(
   if (res.some((h) => h.sourceId)) {
     return diversifyHitsBySource(res, sources, limit)
   }
-  // 老版本 gbrain 没返回 source_id：退回逐源查
-  const all = await Promise.all(
-    sources.map((s) => searchGBrain(config, query, limit, offset, s).catch(() => [] as GBrainHit[])),
-  )
+  // 老版本 gbrain 没返回 source_id：逐源查。必须串行，并行会 pglite_busy。
   const seen = new Set<string>()
   const merged: GBrainHit[] = []
-  for (const hit of all.flat()) {
-    if (seen.has(hit.slug)) continue
-    seen.add(hit.slug)
-    merged.push(hit)
+  for (const source of sources) {
+    const rows = await searchGBrain(config, query, limit, offset, source).catch(() => [] as GBrainHit[])
+    for (const hit of rows) {
+      if (seen.has(hit.slug)) continue
+      seen.add(hit.slug)
+      merged.push(hit)
+    }
   }
   // 不做按源归一化（会把弱源的头名抬到 1.0 压掉真正匹配的页），保留原始分排序
   return merged.sort((a, b) => b.score - a.score).slice(0, limit)

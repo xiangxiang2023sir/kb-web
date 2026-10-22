@@ -140,24 +140,6 @@ export function toMarkdown(
   return `---\ntitle: "${safeTitle}"\ntype: note\ntags:\n  - ${field}\n  - ${sensitivity}\n${metaLines}\n---\n\n${body.trim()}\n${origin}`
 }
 
-/**
- * 判「告知/陈述」而不是「提问」。默认当提问（设备名、短句都要检索）。
- * 只有明确「记录/改成了/告知」口吻才当陈述。questionWords 放 config.yaml。
- */
-export function looksLikeStatement(text: string, questionWords: string[]): boolean {
-  const n = (text || '').trim()
-  if (!n) return false
-  if (/[?？]/.test(n)) return false
-  const low = n.toLowerCase()
-  for (const w of questionWords) {
-    const word = String(w || '').trim().toLowerCase()
-    if (word && low.includes(word)) return false
-  }
-  if (/记录一下|改成了|已经把|告知[:：]|备注[:：]/.test(n)) return n.length >= 8
-  if (/^我.+(了|成)/.test(n) && n.length >= 10) return true
-  return false
-}
-
 export async function extractText(filePath: string, filename: string): Promise<string> {
   const ext = extname(filename).toLowerCase()
   if (ext === '.md' || ext === '.txt') return readFile(filePath, 'utf8')

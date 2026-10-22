@@ -28,8 +28,6 @@ function stubConfig(over: Partial<AppConfig['feishu']> = {}): AppConfig {
     chat: {
       phrases: ['你好'],
       fallback: '你好',
-      ackText: '知道了',
-      questionWords: ['怎么', '如何', '吗'],
       historyTurns: 8,
       maxSessions: 50,
       maxTurnsPerSession: 100,

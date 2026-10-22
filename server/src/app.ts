@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import Busboy from 'busboy'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { assertCanConfirm, canSee, canSeeInProject, parseSlug } from './access.js'
+import { assertCanConfirm, pageVisible, parseSlug } from './access.js'
 import { archiveToPending, listArchives, readArchive, writeWeeklyArchives } from './archive.js'
 import { cancelAll, cancelAsk, collectAskResult, contextOf, handleAsk, resolveAgentSession, runAsk } from './ask.js'
 import { loadConfig, loadEnvFile, serverRoot, type AppConfig, type Field, type Role, type Sensitivity, type User, isField, isRole, isSensitivity } from './config.js'
@@ -143,30 +143,16 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     rateBuckets.set(key, bucket)
     return bucket.count > limit
   }
+  function clientKey(req: Request): string {
+    const fwd = String(req.headers['cf-connecting-ip'] ?? req.headers['x-forwarded-for'] ?? '')
+      .split(',')[0]
+      .trim()
+    return fwd || req.socket.remoteAddress || 'local'
+  }
   const dataDir = opts?.dataDir ?? join(serverRoot, 'data')
   mkdirSync(dataDir, { recursive: true })
   const db = openDb(join(dataDir, 'kb.sqlite'))
   db.repairTitles(decodeUploadName)
-  for (const doc of db.confirmedDocs()) {
-    const parsed = parseSlug(doc.slug)
-    if (!parsed) continue
-    const markdown = toMarkdown(doc.title, parsed.field, parsed.sensitivity, doc.content, originNameOf(dataDir, doc.sourcePath))
-    const corpus = join(dataDir, 'corpus', `${doc.slug}.md`)
-    let current = ''
-    try {
-      current = readFileSync(corpus, 'utf8')
-    } catch {
-      /* 还没有语料文件 */
-    }
-    if (current === markdown) continue
-    mkdirSync(dirname(corpus), { recursive: true })
-    writeFileSync(corpus, markdown, 'utf8')
-    try {
-      await captureGBrain(config, corpus, doc.slug)
-    } catch {
-      // 启动时把 GBrain 页标题改回来，失败不挡服务
-    }
-  }
   const app = express()
   app.use(
     express.json({
@@ -214,6 +200,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   app.post(
     '/api/auth/register',
     asyncRoute(async (req, res) => {
+      if (hitRate(`register:${clientKey(req)}`, 10)) throw new HttpError(429, '注册太频繁，请稍后再试')
       const name = String(req.body?.name ?? '').trim()
       const employeeNo = String(req.body?.employeeNo ?? '').trim()
       const password = String(req.body?.password ?? '')
@@ -234,6 +221,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   app.post(
     '/api/auth/login',
     asyncRoute(async (req, res) => {
+      if (hitRate(`login:${clientKey(req)}`, 30)) throw new HttpError(429, '登录太频繁，请稍后再试')
       const login = String(req.body?.username ?? '').trim()
       const password = String(req.body?.password ?? '')
       const found = db.findUserByLogin(login)
@@ -381,9 +369,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       let similar: { slug: string; title: string }[] = []
       try {
         const hits = await searchGBrainMulti(config, draft.title, 5, 0, db.searchSourcesFor(me))
-        similar = hits
-          .filter((h) => !/\/top_secret\//.test(String(h.slug)))
-          .map((h) => ({ slug: String(h.slug), title: String((h as { title?: string }).title ?? h.slug) }))
+        similar = similarOf(me, hits)
       } catch {
         similar = []
       }
@@ -985,7 +971,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (role === 'operator' && !isField(field)) throw new HttpError(400, '操作员必须指定领域')
       const password = req.body?.password ? String(req.body.password) : ''
       const employeeNo = String(req.body?.employeeNo ?? '').trim()
-      if (employeeNo && employeeNo !== (current as { employeeNo?: string }).employeeNo) {
+      if (employeeNo && employeeNo !== current.employeeNo) {
         if (!/^[A-Za-z0-9_-]{2,20}$/.test(employeeNo)) throw new HttpError(400, '工号只能是字母数字下划线减号，2~20 位')
         const dup = db.findUserByLogin(employeeNo)
         if (dup && dup.id !== current.id) throw new HttpError(400, '工号已存在')
@@ -1126,9 +1112,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       let similar: { slug: string; title: string }[] = []
       try {
         const hits = await searchGBrainMulti(config, draft.title, 5, 0, db.searchSourcesFor(user))
-        similar = hits
-          .filter((h) => !/\/top_secret\//.test(String(h.slug)))
-          .map((h) => ({ slug: String(h.slug), title: String((h as { title?: string }).title ?? h.slug) }))
+        similar = similarOf(user, hits)
       } catch {
         similar = []
       }
@@ -1178,10 +1162,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       let similar: { slug: string; title: string }[] = []
       try {
         const hits = await searchGBrain(config, title, 3, 0)
-        // 只取公开/内部级：绝密页的标题不能出现在待确认正文里（审阅人可能看不到那份）
-        similar = hits
-          .filter((h) => !/\/top_secret\//.test(String(h.slug)))
-          .map((h) => ({ slug: h.slug, title: String((h as { title?: string }).title ?? h.slug) }))
+        similar = similarOf(caller.user, hits)
       } catch {
         similar = []
       }
@@ -1304,15 +1285,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       // 「答不上来」的判定：无资料阶段 / 没引用 / 答案里就是"没找到资料"那句话
       // 只有"答案开头就是在说没资料"才算答不上来（避免正常的"未提及"误判）
       // 去掉 markdown 加粗/「结论：」这类前缀再判断
-      const head = String(out.answer ?? '')
-        .replace(/[*#>`]/g, '')
-        .replace(/^\s*(结论|答案|回答)\s*[:：]\s*/, '')
-        .trim()
-        .slice(0, 80)
-      const noAnswer =
-        out.phase === 'no_evidence' ||
-        (out.citations ?? []).length === 0 ||
-        /^(?:本次|这次|该问题|这个问题)?\s*(?:资料未给出|资料中没有|知识库中没有|没有找到与该问题|资料中未提及|未找到相关|无法回答|暂无相关|资料不涉及)/.test(head)
+      const noAnswer = out.phase === 'no_evidence'
       const activeProjects = db.listProjects().filter((pj) => pj.status === 'active').map((pj) => pj.id)
       const myProjects = user.role === 'owner' ? activeProjects : db.projectsOfUser(user.id)
       const limitedAccess = user.role !== 'owner' && activeProjects.some((id) => !myProjects.includes(id))
@@ -1380,6 +1353,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!query) throw new HttpError(400, 'query 必填')
       const user = agentUserOf(req)
       const scope = projectScope(user, req.body?.project)
+      const sourceRoles = scope.projectRole === undefined ? db.sourceRolesFor(user) : undefined
 
       const limit = Math.min(Math.max(Number(req.body?.limit ?? 5), 1), 5)
       const rows = await searchGBrainMulti(config, query, Math.max(limit * 3, 10), 0, scope.sources).catch(
@@ -1389,10 +1363,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       for (const row of rows) {
         const parsed = parseSlug(row.slug)
         if (!parsed) continue
-        const visible =
-          scope.projectRole === undefined
-            ? canSee(user, parsed.field, parsed.sensitivity)
-            : canSeeInProject(user.role, scope.projectRole, parsed.sensitivity)
+        const visible = pageVisible(user, parsed.field, parsed.sensitivity, {
+          projectRole: scope.projectRole,
+          sourceId: row.sourceId,
+          sourceRoles,
+        })
         if (!visible) continue
         if (parsed.sensitivity === 'confidential' || parsed.sensitivity === 'top_secret') continue
         hits.push({
@@ -1408,6 +1383,19 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       res.json({ ok: true, user: user.name, hits, noEvidence: hits.length ? null : config.noEvidence.text })
     }),
   )
+
+  /** 相似页只留下调用者看得到的，绝密标题不写进待确认。 */
+  function similarOf(user: User, hits: { slug: string; title?: string; sourceId?: string }[]) {
+    const sourceRoles = db.sourceRolesFor(user)
+    const out: { slug: string; title: string }[] = []
+    for (const hit of hits) {
+      const parsed = parseSlug(String(hit.slug))
+      if (!parsed || parsed.sensitivity === 'top_secret') continue
+      if (!pageVisible(user, parsed.field, parsed.sensitivity, { sourceId: hit.sourceId, sourceRoles })) continue
+      out.push({ slug: parsed.slug, title: String(hit.title ?? hit.slug) })
+    }
+    return out
+  }
 
   /** 按标题/正文猜一个项目（只做默认值建议，最终由人选） */
   function suggestProjectId(text: string): string | null {
@@ -1469,7 +1457,9 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     '/api/admin/kb/status',
     requireAdmin,
     asyncRoute(async (_req, res) => {
-      const [stats, pages] = await Promise.all([gbrainStats(config), listGBrainFull(config)])
+      const me = userOf(res)!
+      const [stats, pagesAll] = await Promise.all([gbrainStats(config), listGBrainFull(config)])
+      const pages = pagesAll.filter((pg) => pg.slug.split('/')[1] !== 'top_secret' || me.role === 'owner')
       const byField: Record<string, number> = {}
       const bySensitivity: Record<string, number> = {}
       const bySource: Record<string, number> = {}
@@ -1507,9 +1497,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const page = Math.max(1, Number(req.query.page ?? 1))
       const size = Math.min(Math.max(1, Number(req.query.size ?? 20)), 200)
       const sourceId = String(req.query.project ?? '').trim() || undefined
+      const me = userOf(res)!
       let all = await listGBrainFull(config, sourceId)
       all = all.filter((pg) => {
         const parts = pg.slug.split('/')
+        if (parts[1] === 'top_secret' && me.role !== 'owner') return false
         if (field && parts[0] !== field) return false
         if (sensitivity && parts[1] !== sensitivity) return false
         if (keyword && !`${pg.slug} ${pg.title}`.toLowerCase().includes(keyword)) return false
@@ -1558,7 +1550,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const src = String(req.query.sourceId ?? req.query.project ?? req.query.source ?? '').trim() || undefined
       await deleteGBrainPage(config, slug, src)
       // 清掉登记表里指向这个 slug 的条目（docs 表只做登记，不是知识本体）
-      const ids = db.docIdsBySourcePath(slug)
+      const ids = db.docIdsForSlug(slug)
       for (const id of ids) db.deleteDoc(id)
       const cleaned = ids.length
       audit(me.name, 'kb.delete', slug, { sensitivity, cleanedDocs: cleaned })
