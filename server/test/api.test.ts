@@ -707,6 +707,20 @@ agent: { publicOnlyOnly: true }
     assert.equal(temp.status, 200)
     const tempBody = (await temp.json()) as { kbSource: string }
     assert.equal(tempBody.kbSource, 'tools')
+
+    const queued = await fetch(`${base}/api/questions`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: '这句不该留在队列' }),
+    })
+    assert.equal(queued.status, 200)
+    const qid = ((await queued.json()) as { id: string }).id
+    const removed = await fetch(`${base}/api/admin/questions/${qid}`, { method: 'DELETE', headers: { cookie } })
+    assert.equal(removed.status, 200)
+    const gone = await fetch(`${base}/api/admin/questions/${qid}`, { headers: { cookie } })
+    assert.equal(gone.status, 404)
+    const missing = await fetch(`${base}/api/admin/questions/no-such`, { method: 'DELETE', headers: { cookie } })
+    assert.equal(missing.status, 404)
   } finally {
     await server.close()
     rmSync(dir, { recursive: true, force: true })

@@ -809,6 +809,13 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     )
   })
 
+  app.delete('/api/admin/questions/:id', requireAdmin, (req, res) => {
+    const question = db.getQuestion(req.params.id)
+    if (!question) return res.status(404).json({ message: '问题不存在' })
+    db.deleteQuestion(question.id)
+    res.json({ ok: true })
+  })
+
   app.get(
     '/api/admin/questions/:id',
     requireAdmin,

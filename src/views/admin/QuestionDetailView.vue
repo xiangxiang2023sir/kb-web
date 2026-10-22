@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi, projectsApi } from '@/api/endpoints'
 import type { Field, QuestionDetail, Sensitivity } from '@/types'
 import { fieldLabels, formatTime, questionStatusLabels, sensitivityLabels } from '@/utils/labels'
@@ -32,6 +32,26 @@ onMounted(async () => {
     router.push({ name: 'admin-questions' })
   }
 })
+
+async function remove() {
+  if (!q.value) return
+  try {
+    await ElMessageBox.confirm(`删除「${q.value.question}」？删除后不能恢复。`, '删除问题', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.deleteQuestion(q.value.id)
+    ElMessage.success('已删除')
+    router.push({ name: 'admin-questions' })
+  } catch {
+    ElMessage.error('删除失败，请重试')
+  }
+}
 
 async function submit() {
   if (!q.value) return
@@ -99,6 +119,7 @@ async function submit() {
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="saving" @click="submit">解决并入库</el-button>
+        <el-button type="danger" plain @click="remove">删除问题</el-button>
       </el-form-item>
     </el-form>
   </div>

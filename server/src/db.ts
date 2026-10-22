@@ -869,6 +869,10 @@ export class KbDb {
     this.run(`UPDATE questions SET status = 'resolved' WHERE id = ?`, id)
   }
 
+  deleteQuestion(id: string) {
+    this.run(`DELETE FROM questions WHERE id = ?`, id)
+  }
+
   replaceHealth(issues: { id: string; type: string; docId: string; docTitle: string; detail: string }[], ranAt: string) {
     this.exec(`DELETE FROM health_issues`)
     for (const issue of issues) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
 import type { Field, QuestionItem, QuestionStatus, User } from '@/types'
 import { fieldLabels, formatTime, questionStatusLabels, roleLabels } from '@/utils/labels'
@@ -41,6 +41,25 @@ function openAssign(row: QuestionItem) {
   current.value = row
   assigneeId.value = ''
   assignVisible.value = true
+}
+
+async function remove(row: QuestionItem) {
+  try {
+    await ElMessageBox.confirm(`删除「${row.question}」？删除后不能恢复。`, '删除问题', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.deleteQuestion(row.id)
+    ElMessage.success('已删除')
+    void load()
+  } catch {
+    ElMessage.error('删除失败，请重试')
+  }
 }
 
 async function doAssign() {
@@ -88,12 +107,13 @@ const statusTag = (s: QuestionStatus) =>
       <el-table-column label="时间" width="170">
         <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="180">
+      <el-table-column label="操作" width="240">
         <template #default="{ row }">
           <el-button size="small" @click="router.push(`/admin/questions/${row.id}`)">详情</el-button>
           <el-button size="small" type="primary" plain :disabled="row.status === 'resolved'" @click="openAssign(row)">
             指派
           </el-button>
+          <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

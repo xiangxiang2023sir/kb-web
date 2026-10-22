@@ -139,6 +139,7 @@ export const adminApi = {
     http.get<QuestionItem[]>('/admin/questions', { params }).then((r) => r.data),
   question: (id: string) => http.get<QuestionDetail>(`/admin/questions/${id}`).then((r) => r.data),
   assignQuestion: (id: string, userId: string) => http.post(`/admin/questions/${id}/assign`, { userId }),
+  deleteQuestion: (id: string) => http.delete(`/admin/questions/${id}`),
   /** 解答后入库：Hermes 自动分类，随后进入待确认队列 */
   resolveQuestion: (
     id: string,

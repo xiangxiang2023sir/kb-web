@@ -561,6 +561,17 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'DELETE',
+    pattern: '/admin/questions/:id',
+    role: 'admin',
+    handler: ({ params, res }) => {
+      const i = questions.findIndex((x) => x.id === params.id)
+      if (i < 0) return sendJson(res, 404, { message: '问题不存在' })
+      questions.splice(i, 1)
+      sendJson(res, 200, { ok: true })
+    },
+  },
+  {
     method: 'POST',
     pattern: '/admin/questions/:id/resolve',
     role: 'admin',
