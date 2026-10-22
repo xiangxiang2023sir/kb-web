@@ -415,24 +415,31 @@ async function collectHits(
   }
   kept = kept.slice(0, config.search.keep)
   if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] TRACE final=${kept.map(hitLabel).join(' | ') || '(empty)'}`)
-  await fillBodies(config, kept, sources)
+  await fillBodies(config, kept)
   return kept
 }
 
-/** 串行读整页。PGLite 同时只能有一个进程，并行 get 会空正文。 */
-async function fillBodies(config: AppConfig, hits: KeptHit[], sources?: string[]) {
+/** 已知分区只读那一处；空了再查一次全库。没有分区就只查全库。 */
+export function bodyReadPlan(sourceId?: string): string[] {
+  if (!sourceId || sourceId === '__all__') return ['__all__']
+  return [sourceId, '__all__']
+}
+
+/** 串行读整页。每页一次 get；并行会抢 PGLite，正文变空。 */
+async function fillBodies(config: AppConfig, hits: KeptHit[]) {
   for (const hit of hits) {
-    let body = ''
-    for (const s of sources && sources.length ? sources : [undefined]) {
+    hit.body = ''
+    for (const sourceId of bodyReadPlan(hit.sourceId)) {
       try {
-        body = await pageBodyGBrain(config, hit.slug, s as string | undefined)
-        if (body.trim()) break
+        const body = await pageBodyGBrain(config, hit.slug, sourceId)
+        if (!body.trim()) continue
+        hit.body = body
+        break
       } catch {
-        /* 换下一个源 */
+        /* 换下一个来源 */
       }
     }
-    hit.body = body
-    if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] BODY ${hit.slug} len=${body.length}`)
+    if (process.env.KB_DEBUG_HITS === '1') console.error(`[hits] BODY ${hit.slug} len=${hit.body.length}`)
   }
 }
 

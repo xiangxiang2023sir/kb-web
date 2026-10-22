@@ -11,6 +11,7 @@ import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from 
 import { confidenceOf, type AppConfig } from '../src/config.js'
 import { openDb } from '../src/db.js'
 import { coverageTermsOf, decodeUploadName, extractText, isSmallTalk, searchQueryOf, searchTermsOf } from '../src/text.js'
+import { bodyReadPlan } from '../src/ask.js'
 import { start } from '../src/app.js'
 
 const fakeGbrain = fileURLToPath(new URL('./fake-gbrain.mjs', import.meta.url))
@@ -39,6 +40,12 @@ test('打招呼不走知识库检索', () => {
   assert.equal(isSmallTalk('你是谁', phrases), true)
   assert.equal(isSmallTalk('液压油多久换一次', phrases), false)
   assert.equal(isSmallTalk('你好，液压油怎么换', phrases), false)
+})
+
+test('读全文先用命中自己的分区', () => {
+  assert.deepEqual(bodyReadPlan('p-amr01'), ['p-amr01', '__all__'])
+  assert.deepEqual(bodyReadPlan(undefined), ['__all__'])
+  assert.deepEqual(bodyReadPlan('__all__'), ['__all__'])
 })
 
 test('没选项目时，项目分区按成员角色，不按领域放行机密', () => {
