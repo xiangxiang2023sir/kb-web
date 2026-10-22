@@ -277,6 +277,8 @@ export interface ProjectItem {
   status: string
   note: string | null
   createdAt: string
+  kbSource?: string
+  sourceReady?: boolean | null
   memberCount?: number
   leads?: string[]
 }
@@ -290,8 +292,15 @@ export interface ProjectMember {
 /** 项目与成员 */
 export const projectsApi = {
   list: () => http.get<ProjectItem[]>('/admin/projects').then((r) => r.data),
-  create: (payload: { id: string; name: string; note?: string }) =>
-    http.post('/admin/projects', payload).then((r) => r.data),
+  create: (payload: { id: string; name: string; note?: string; ownSource?: boolean; attach?: 'tools' | 'default' }) =>
+    http
+      .post<{ ok: boolean; id: string; kbSource?: string; sourceReady?: boolean; warning?: string }>(
+        '/admin/projects',
+        payload,
+      )
+      .then((r) => r.data),
+  ensureSource: (id: string) =>
+    http.post<{ ok: boolean; status: string }>(`/admin/projects/${id}/ensure-source`).then((r) => r.data),
   update: (id: string, patch: { name?: string; status?: string; note?: string | null }) =>
     http.patch(`/admin/projects/${id}`, patch).then((r) => r.data),
   members: (id: string) => http.get<ProjectMember[]>(`/admin/projects/${id}/members`).then((r) => r.data),
@@ -300,7 +309,11 @@ export const projectsApi = {
   removeMember: (id: string, userId: string) =>
     http.delete(`/admin/projects/${id}/members/${userId}`).then((r) => r.data),
   mine: () =>
-    http.get<{ id: string; name: string; role: string | null }[]>('/projects/mine').then((r) => r.data),
+    http
+      .get<{ id: string; name: string; role: string | null; kbSource?: string; sourceReady?: boolean | null }[]>(
+        '/projects/mine',
+      )
+      .then((r) => r.data),
 }
 
 /** 对话里「入库 xxx」：先整理，用户确认后再提交 */

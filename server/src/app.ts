@@ -13,9 +13,14 @@ import {
   GBrainError,
   captureGBrain,
   deleteGBrainPage,
+  ensureGBrainSource,
+  gbrainSourceExists,
   gbrainStats,
+  isMissingGBrainSourceError,
   listGBrain,
   listGBrainFull,
+  listGBrainSources,
+  missingKbSourceMessage,
   pageBodyGBrain,
   searchGBrain,
   searchGBrainMulti,
@@ -375,7 +380,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const suggested = suggestProjectId(`${draft.title} ${draft.content}`)
       let similar: { slug: string; title: string }[] = []
       try {
-        const hits = await searchGBrainMulti(config, draft.title, 5, 0, ['default', ...db.projectsOfUser(me.id)])
+        const hits = await searchGBrainMulti(config, draft.title, 5, 0, db.searchSourcesFor(me))
         similar = hits
           .filter((h) => !/\/top_secret\//.test(String(h.slug)))
           .map((h) => ({ slug: String(h.slug), title: String((h as { title?: string }).title ?? h.slug) }))
@@ -750,10 +755,29 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const corpus = join(dataDir, 'corpus', `${slug}.md`)
       mkdirSync(dirname(corpus), { recursive: true })
       writeFileSync(corpus, markdown, 'utf8')
+      const captureSource = projectId ? db.kbSourceOf(projectId) : null
+      const captureArg = captureSource && captureSource !== 'default' ? captureSource : null
+      if (captureArg) {
+        let ready = false
+        try {
+          ready = await gbrainSourceExists(config, captureArg)
+        } catch (err) {
+          throw new HttpError(502, err instanceof GBrainError ? err.message : '无法检查知识库分区')
+        }
+        if (!ready) {
+          const pname = db.projectById(projectId!)?.name ?? projectId!
+          throw new HttpError(400, missingKbSourceMessage(pname, captureArg))
+        }
+      }
       try {
-        await captureGBrain(config, corpus, slug, projectId)
+        await captureGBrain(config, corpus, slug, captureArg)
       } catch (err) {
-        throw new HttpError(502, err instanceof GBrainError ? err.message : '入库失败')
+        const raw = err instanceof GBrainError ? err.message : '入库失败'
+        if (err instanceof GBrainError && isMissingGBrainSourceError(raw) && projectId) {
+          const pname = db.projectById(projectId)?.name ?? projectId
+          throw new HttpError(400, missingKbSourceMessage(pname, captureArg || projectId))
+        }
+        throw new HttpError(502, raw)
       }
       db.confirmDoc(doc.id, field, sensitivity, slug, markdown, new Date().toISOString())
       audit(userOf(res)!.name, 'kb.confirm', slug, { projectId, field, sensitivity })
@@ -1101,7 +1125,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       // 可能重复的页（只给公开/内部，避免泄露绝密标题）
       let similar: { slug: string; title: string }[] = []
       try {
-        const hits = await searchGBrainMulti(config, draft.title, 5, 0, ['default', ...db.projectsOfUser(user.id)])
+        const hits = await searchGBrainMulti(config, draft.title, 5, 0, db.searchSourcesFor(user))
         similar = hits
           .filter((h) => !/\/top_secret\//.test(String(h.slug)))
           .map((h) => ({ slug: String(h.slug), title: String((h as { title?: string }).title ?? h.slug) }))
@@ -1418,12 +1442,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     user: User,
     projectParam: unknown,
   ): { sources: string[]; projectRole?: 'lead' | 'member' } {
-    const myProjects =
-      user.role === 'owner'
-        ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id)
-        : db.projectsOfUser(user.id)
-    // 全局也带 tools（SRC-1100 这类只在工具库）；混排时 ask.ts 会降权，避免方法论页抢位
-    const base = ['default', ...myProjects]
+    // 全局：公共库 + 我参与项目对应的 GBrain source（临时项目可能指向 tools）
+    const base = db.searchSourcesFor(user)
     const pid = String(projectParam ?? '').trim()
     if (!pid) return { sources: base }
     const project = db.projectById(pid)
@@ -1431,7 +1451,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     if (project.status !== 'active') throw new HttpError(403, `项目 ${pid} 已归档，不能按项目检索`)
     const role = db.projectRoleOf(pid, user.id)
     if (!role && user.role !== 'owner') throw new HttpError(403, permDeniedMsg(project.name, user.name))
-    return { sources: [pid], projectRole: role ?? 'lead' }
+    return { sources: [db.kbSourceOf(pid)], projectRole: role ?? 'lead' }
   }
 
   // ================= 资料库（以 GBrain 为准）=================
@@ -1548,17 +1568,35 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
 
 
   // ================= 项目管理（成员表=唯一权限来源）=================
-  app.get('/api/admin/projects', requireAdmin, (_req, res) => {
-    const rows = db.listProjects().map((p) => {
-      const members = db.projectMembers(p.id)
-      return {
-        ...p,
-        memberCount: members.length,
-        leads: members.filter((m) => m.role === 'lead').map((m) => m.name),
-      }
-    })
-    res.json(rows)
-  })
+  async function decorateProjects<T extends { id: string; kbSource: string }>(rows: T[]) {
+    let ready: Set<string> | null = null
+    try {
+      ready = new Set((await listGBrainSources(config)).map((s) => s.id))
+      ready.add('default')
+    } catch {
+      ready = null
+    }
+    return rows.map((p) => ({
+      ...p,
+      sourceReady: ready == null ? null : ready.has(p.kbSource || p.id),
+    }))
+  }
+
+  app.get(
+    '/api/admin/projects',
+    requireAdmin,
+    asyncRoute(async (_req, res) => {
+      const rows = db.listProjects().map((p) => {
+        const members = db.projectMembers(p.id)
+        return {
+          ...p,
+          memberCount: members.length,
+          leads: members.filter((m) => m.role === 'lead').map((m) => m.name),
+        }
+      })
+      res.json(await decorateProjects(rows))
+    }),
+  )
 
   app.post(
     '/api/admin/projects',
@@ -1570,9 +1608,44 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!/^[a-z0-9][a-z0-9-]{1,31}$/.test(id)) throw new HttpError(400, '项目 id 只能是小写字母/数字/连字符，2~32 位')
       if (!name) throw new HttpError(400, '项目名称必填')
       if (db.projectById(id)) throw new HttpError(409, '这个项目 id 已存在')
-      db.insertProject({ id, name, note })
-      audit(userOf(res)!.name, 'project.create', id, { name })
-      res.json({ ok: true, id })
+      const ownSource = req.body?.ownSource !== false && req.body?.ownSource !== 'false' && req.body?.ownSource !== 0
+      const attach = String(req.body?.attach ?? 'tools') === 'default' ? 'default' : 'tools'
+      const kbSource = ownSource ? id : attach
+      db.insertProject({ id, name, note, kbSource })
+      let sourceReady = !ownSource
+      let warning: string | undefined
+      if (ownSource) {
+        try {
+          await ensureGBrainSource(config, id)
+          sourceReady = true
+        } catch (err) {
+          warning = `项目已建，但知识库分区没建起来：${err instanceof Error ? err.message : '未知错误'}。可在列表里点「补建分区」。`
+        }
+      }
+      audit(userOf(res)!.name, 'project.create', id, { name, kbSource, sourceReady })
+      res.json({ ok: true, id, kbSource, sourceReady, warning })
+    }),
+  )
+
+  app.post(
+    '/api/admin/projects/:id/ensure-source',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const id = String(req.params.id)
+      const project = db.projectById(id)
+      if (!project) throw new HttpError(404, '项目不存在')
+      const src = project.kbSource || id
+      if (src === 'default') throw new HttpError(400, '这个项目归公共库，不用单独建分区')
+      if (src !== id) {
+        throw new HttpError(400, `这个项目不走独立分区，入库会进「${src}」。要独立分区请新建项目并勾选。`)
+      }
+      try {
+        const status = await ensureGBrainSource(config, src)
+        audit(userOf(res)!.name, 'project.ensure-source', id, { status })
+        res.json({ ok: true, id, kbSource: src, status })
+      } catch (err) {
+        throw new HttpError(502, err instanceof GBrainError ? err.message : err instanceof Error ? err.message : '补建分区失败')
+      }
     }),
   )
 
@@ -1627,16 +1700,25 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
   })
 
   // 我参与的项目（供前端下拉）
-  app.get('/api/projects/mine', requireUser, (_req, res) => {
-    const me = userOf(res)!
-    const ids = me.role === 'owner' ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id) : db.projectsOfUser(me.id)
-    res.json(
-      ids.map((id) => {
+  app.get(
+    '/api/projects/mine',
+    requireUser,
+    asyncRoute(async (_req, res) => {
+      const me = userOf(res)!
+      const ids =
+        me.role === 'owner' ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id) : db.projectsOfUser(me.id)
+      const rows = ids.map((id) => {
         const p = db.projectById(id)
-        return { id, name: p?.name ?? id, role: db.projectRoleOf(id, me.id) ?? (me.role === 'owner' ? 'lead' : null) }
-      }),
-    )
-  })
+        return {
+          id,
+          name: p?.name ?? id,
+          kbSource: p?.kbSource ?? id,
+          role: db.projectRoleOf(id, me.id) ?? (me.role === 'owner' ? 'lead' : null),
+        }
+      })
+      res.json(await decorateProjects(rows))
+    }),
+  )
 
 
   app.use('/api', (_req, res) => {

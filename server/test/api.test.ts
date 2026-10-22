@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, parseSlug } from '../src/access.js'
-import { diversifyHitsBySource } from '../src/gbrain.js'
+import { diversifyHitsBySource, isMissingGBrainSourceError, missingKbSourceMessage, parseSourcesList } from '../src/gbrain.js'
 import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
 import { confidenceOf, type AppConfig } from '../src/config.js'
 import { openDb } from '../src/db.js'
@@ -552,6 +552,112 @@ agent: { publicOnlyOnly: true }
     await server.close()
     rmSync(dir, { recursive: true, force: true })
     delete process.env.KB_CONFIG
+  }
+})
+
+test('GBrain sources list 两种 JSON 都能读', () => {
+  assert.deepEqual(
+    parseSourcesList({ sources: [{ id: '240242', local_path: '/x', page_count: 0 }] }).map((s) => s.id),
+    ['240242'],
+  )
+  assert.deepEqual(parseSourcesList([{ id: 'tools' }]).map((s) => s.id), ['tools'])
+  assert.deepEqual(parseSourcesList(null), [])
+})
+
+test('缺 source 时给人看的中文说明', () => {
+  assert.match(missingKbSourceMessage('火焰处理', '240242'), /还没有知识库分区/)
+  assert.equal(isMissingGBrainSourceError('gbrain capture: Source "240242" not found or is archived.'), true)
+})
+
+test('项目没有 GBrain source 时确认入库给明确报错；建好分区后能入库', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-src-'))
+  const stateFile = join(dir, 'gbrain-sources.json')
+  writeFileSync(
+    join(dir, 'config.yaml'),
+    `search: { fetchLimit: 10, keep: 5, maxPages: 1 }
+confidence: { highMin: 0.03, mediumMin: 0.015 }
+noEvidence: { text: "没有资料", score: 0.2 }
+keywords: { electrical: [变频], mechanical: [], dispatch: [] }
+sensitivityKeywords: { top_secret: [], confidential: [], public: [] }
+defaults: { field: electrical, sensitivity: internal }
+llm: { baseUrl: "http://127.0.0.1:9", model: test, temperature: 0, maxTokens: 20 }
+vision: { baseUrl: "", model: "", maxImages: 4 }
+gbrain: { command: node, argsPrefix: [${JSON.stringify(fakeGbrain)}], timeoutMs: 5000 }
+health: { reportIslandedPages: false }
+limits: { imageBytes: 1000000, docBytes: 1000000, classifyChars: 1000 }
+auth: { cookieName: kb_sid, ttlDays: 1 }
+agent: { publicOnlyOnly: true }
+`,
+  )
+  process.env.KB_CONFIG = join(dir, 'config.yaml')
+  process.env.DEEPSEEK_API_KEY = ''
+  process.env.GBRAIN_BIN = 'node'
+  process.env.KB_SOURCES_DIR = join(dir, 'kb-sources')
+  delete process.env.FAKE_GBRAIN_STATE
+  const server = await start({ dataDir: dir, port: 0, host: '127.0.0.1' })
+  const base = `http://127.0.0.1:${server.port}`
+  try {
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'owner', password: 'admin123' }),
+    })
+    const cookie = login.headers.getSetCookie()[0].split(';')[0]
+
+    // 不持久化 sources add → 项目建了但 list 里没有 → 确认应拒绝
+    const created = await fetch(`${base}/api/admin/projects`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'p-flame', name: '火焰处理', ownSource: true }),
+    })
+    assert.equal(created.status, 200)
+
+    const form = new FormData()
+    form.set('file', new File(['火焰处理要点'], 'eic.txt', { type: 'text/plain' }))
+    const uploaded = await fetch(`${base}/api/admin/docs/upload`, { method: 'POST', headers: { cookie }, body: form })
+    assert.equal(uploaded.status, 200)
+    const doc = (await uploaded.json()) as { id: string }
+
+    const failed = await fetch(`${base}/api/admin/docs/${doc.id}/confirm`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: 'mechanical', sensitivity: 'internal', project: 'p-flame' }),
+    })
+    assert.equal(failed.status, 400)
+    const failBody = (await failed.json()) as { message: string }
+    assert.match(failBody.message, /还没有知识库分区/)
+    assert.ok(!failBody.message.includes('Available active sources'))
+
+    // 持久化 source 后再补建，确认应成功
+    process.env.FAKE_GBRAIN_STATE = stateFile
+    const ensured = await fetch(`${base}/api/admin/projects/p-flame/ensure-source`, {
+      method: 'POST',
+      headers: { cookie },
+    })
+    assert.equal(ensured.status, 200)
+
+    const ok = await fetch(`${base}/api/admin/docs/${doc.id}/confirm`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: 'mechanical', sensitivity: 'internal', project: 'p-flame' }),
+    })
+    assert.equal(ok.status, 200)
+
+    // 临时项目可以不建独立分区，入库进 tools
+    const temp = await fetch(`${base}/api/admin/projects`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'p-temp01', name: '临时', ownSource: false, attach: 'tools' }),
+    })
+    assert.equal(temp.status, 200)
+    const tempBody = (await temp.json()) as { kbSource: string }
+    assert.equal(tempBody.kbSource, 'tools')
+  } finally {
+    await server.close()
+    rmSync(dir, { recursive: true, force: true })
+    delete process.env.KB_CONFIG
+    delete process.env.FAKE_GBRAIN_STATE
+    delete process.env.KB_SOURCES_DIR
   }
 })
 

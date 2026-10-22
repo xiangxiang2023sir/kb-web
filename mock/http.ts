@@ -9,6 +9,7 @@ import {
   guestUser,
   guessField,
   issues,
+  projects,
   publicUser,
   questions,
   sessions,
@@ -583,6 +584,95 @@ const routes: Route[] = [
       })
       sendJson(res, 200, { ok: true })
     },
+  },
+  {
+    method: 'GET',
+    pattern: '/admin/projects',
+    role: 'admin',
+    handler: ({ res }) => sendJson(res, 200, projects),
+  },
+  {
+    method: 'POST',
+    pattern: '/admin/projects',
+    role: 'admin',
+    handler: async ({ req, res }) => {
+      const body = await readBody(req)
+      const id = String(body.id ?? '').trim()
+      const name = String(body.name ?? '').trim()
+      if (!id || !name) return sendJson(res, 400, { message: '项目 id 和名称必填' })
+      if (projects.some((p) => p.id === id)) return sendJson(res, 409, { message: '这个项目 id 已存在' })
+      const ownSource = body.ownSource !== false
+      const attach = String(body.attach ?? 'tools') === 'default' ? 'default' : 'tools'
+      const kbSource = ownSource ? id : attach
+      projects.push({
+        id,
+        name,
+        status: 'active',
+        note: body.note == null ? null : String(body.note),
+        kbSource,
+        sourceReady: true,
+        createdAt: now(),
+        memberCount: 0,
+        leads: [],
+      })
+      sendJson(res, 200, { ok: true, id, kbSource, sourceReady: ownSource })
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/admin/projects/:id/ensure-source',
+    role: 'admin',
+    handler: ({ params, res }) => {
+      const p = projects.find((x) => x.id === params.id)
+      if (!p) return sendJson(res, 404, { message: '项目不存在' })
+      if (p.kbSource !== p.id) return sendJson(res, 400, { message: '这个项目不走独立分区' })
+      p.sourceReady = true
+      sendJson(res, 200, { ok: true, id: p.id, status: 'created' })
+    },
+  },
+  {
+    method: 'PATCH',
+    pattern: '/admin/projects/:id',
+    role: 'admin',
+    handler: async ({ req, params, res }) => {
+      const p = projects.find((x) => x.id === params.id)
+      if (!p) return sendJson(res, 404, { message: '项目不存在' })
+      const body = await readBody(req)
+      if (body.status) p.status = String(body.status)
+      if (body.name) p.name = String(body.name)
+      sendJson(res, 200, { ok: true })
+    },
+  },
+  {
+    method: 'GET',
+    pattern: '/admin/projects/:id/members',
+    role: 'admin',
+    handler: ({ res }) => sendJson(res, 200, []),
+  },
+  {
+    method: 'POST',
+    pattern: '/admin/projects/:id/members',
+    role: 'admin',
+    handler: ({ res }) => sendJson(res, 200, { ok: true }),
+  },
+  {
+    method: 'DELETE',
+    pattern: '/admin/projects/:id/members/:userId',
+    role: 'admin',
+    handler: ({ res }) => sendJson(res, 200, { ok: true }),
+  },
+  {
+    method: 'GET',
+    pattern: '/projects/mine',
+    role: 'user',
+    handler: ({ res }) =>
+      sendJson(
+        res,
+        200,
+        projects
+          .filter((p) => p.status === 'active')
+          .map((p) => ({ id: p.id, name: p.name, kbSource: p.kbSource, sourceReady: p.sourceReady, role: 'lead' })),
+      ),
   },
   {
     method: 'GET',

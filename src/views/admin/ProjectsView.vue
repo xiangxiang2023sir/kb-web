@@ -15,7 +15,13 @@
           <span class="slug">{{ row.id }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="note" label="说明" min-width="220" show-overflow-tooltip />
+      <el-table-column label="知识库分区" min-width="160">
+        <template #default="{ row }">
+          <span>{{ partitionLabel(row) }}</span>
+          <el-tag v-if="isOwnPartition(row) && row.sourceReady === false" size="small" type="danger" style="margin-left: 6px">未建分区</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="note" label="说明" min-width="180" show-overflow-tooltip />
       <el-table-column label="负责人" min-width="140">
         <template #default="{ row }">
           <el-tag v-for="n in row.leads || []" :key="n" size="small" type="warning" style="margin-right: 4px">{{ n }}</el-tag>
@@ -32,9 +38,19 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
           <el-button size="small" text type="primary" @click="openMembers(row)">成员</el-button>
+          <el-button
+            v-if="isOwnPartition(row) && row.sourceReady === false"
+            size="small"
+            text
+            type="warning"
+            :loading="ensuring === row.id"
+            @click="doEnsure(row)"
+          >
+            补建分区
+          </el-button>
           <el-button size="small" text @click="toggleStatus(row)">
             {{ row.status === 'active' ? '归档' : '恢复' }}
           </el-button>
@@ -43,7 +59,7 @@
     </el-table>
 
     <!-- 新建 -->
-    <el-dialog v-model="createVisible" title="新建项目" width="460px">
+    <el-dialog v-model="createVisible" title="新建项目" width="520px">
       <el-form label-width="90px">
         <el-form-item label="项目 id">
           <el-input v-model="form.id" placeholder="小写字母/数字/连字符，如 p-amr02" />
@@ -53,6 +69,16 @@
         </el-form-item>
         <el-form-item label="说明">
           <el-input v-model="form.note" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="独立分区">
+          <el-switch v-model="form.ownSource" />
+          <div class="hint">勾选后会在 GBrain 建同名 source。临时项目可以关掉，入库进 tools 或公共库。</div>
+        </el-form-item>
+        <el-form-item v-if="!form.ownSource" label="归到">
+          <el-radio-group v-model="form.attach">
+            <el-radio value="tools">tools（共用工具/临时）</el-radio>
+            <el-radio value="default">公共库（按领域）</el-radio>
+          </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -103,7 +129,20 @@ const list = ref<ProjectItem[]>([])
 const users = ref<{ id: string; name: string; role: string }[]>([])
 
 const createVisible = ref(false)
-const form = reactive({ id: '', name: '', note: '' })
+const ensuring = ref('')
+const form = reactive({ id: '', name: '', note: '', ownSource: true, attach: 'tools' as 'tools' | 'default' })
+
+function isOwnPartition(row: ProjectItem) {
+  return (row.kbSource || row.id) === row.id
+}
+
+function partitionLabel(row: ProjectItem) {
+  const src = row.kbSource || row.id
+  if (src === row.id) return '独立'
+  if (src === 'tools') return 'tools'
+  if (src === 'default') return '公共库'
+  return src
+}
 
 const membersVisible = ref(false)
 const current = ref<ProjectItem | null>(null)
@@ -124,6 +163,8 @@ function openCreate() {
   form.id = ''
   form.name = ''
   form.note = ''
+  form.ownSource = true
+  form.attach = 'tools'
   createVisible.value = true
 }
 
@@ -134,8 +175,15 @@ async function doCreate() {
   }
   saving.value = true
   try {
-    await projectsApi.create({ id: form.id.trim(), name: form.name.trim(), note: form.note.trim() })
-    ElMessage.success('已创建')
+    const r = await projectsApi.create({
+      id: form.id.trim(),
+      name: form.name.trim(),
+      note: form.note.trim(),
+      ownSource: form.ownSource,
+      attach: form.attach,
+    })
+    if (r.warning) ElMessage.warning(r.warning)
+    else ElMessage.success(form.ownSource ? '已创建，并建好知识库分区' : '已创建（不建独立分区）')
     createVisible.value = false
     await load()
   } catch (e) {
@@ -143,6 +191,20 @@ async function doCreate() {
     ElMessage.error(msg)
   } finally {
     saving.value = false
+  }
+}
+
+async function doEnsure(row: ProjectItem) {
+  ensuring.value = row.id
+  try {
+    await projectsApi.ensureSource(row.id)
+    ElMessage.success('分区已建好')
+    await load()
+  } catch (e) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '补建失败'
+    ElMessage.error(msg)
+  } finally {
+    ensuring.value = ''
   }
 }
 
@@ -209,5 +271,11 @@ onMounted(load)
   font-size: 12px;
   color: #909399;
   margin-left: 8px;
+}
+.hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+  margin-top: 4px;
 }
 </style>

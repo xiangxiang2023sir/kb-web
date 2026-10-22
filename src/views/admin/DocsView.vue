@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { adminApi, projectsApi } from '@/api/endpoints'
@@ -11,7 +11,7 @@ const list = ref<DocItem[]>([])
 const total = ref(0)
 const loading = ref(false)
 const users = ref<{ id: string; name: string }[]>([])
-const projects = ref<{ id: string; name: string }[]>([])
+const projects = ref<{ id: string; name: string; sourceReady?: boolean | null }[]>([])
 
 const query = reactive<{
   keyword: string
@@ -81,6 +81,11 @@ const confirmForm = reactive<{ field: Field; sensitivity: Sensitivity; project: 
   field: 'electrical',
   sensitivity: 'internal',
   project: '',
+})
+
+const selectedProjectMissing = computed(() => {
+  if (!confirmForm.project) return false
+  return projects.value.find((p) => p.id === confirmForm.project)?.sourceReady === false
 })
 
 function openConfirm(row: DocItem) {
@@ -220,14 +225,29 @@ async function doReject() {
         </el-form-item>
         <el-form-item label="归属项目">
           <el-select v-model="confirmForm.project" clearable placeholder="不选 = 公共库" style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
+            <el-option
+              v-for="p in projects"
+              :key="p.id"
+              :label="p.sourceReady === false ? `${p.name}（分区未建）` : p.name"
+              :value="p.id"
+            />
           </el-select>
+          <p v-if="selectedProjectMissing" class="warn">这个项目还没有知识库分区，确认会失败。请先去「项目管理」补建。</p>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="confirmVisible = false">取消</el-button>
-        <el-button type="primary" @click="doConfirm">确认入库</el-button>
+        <el-button type="primary" :disabled="selectedProjectMissing" @click="doConfirm">确认入库</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.warn {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #c45656;
+  line-height: 1.5;
+}
+</style>

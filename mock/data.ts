@@ -313,6 +313,53 @@ export const questions: QuestionItem[] = [
   },
 ]
 
+// ---------- 项目 ----------
+export const projects: {
+  id: string
+  name: string
+  status: string
+  note: string | null
+  kbSource: string
+  sourceReady: boolean
+  createdAt: string
+  memberCount: number
+  leads: string[]
+}[] = [
+  {
+    id: 'p-amr01',
+    name: '自研 AMR',
+    status: 'active',
+    note: null,
+    kbSource: 'p-amr01',
+    sourceReady: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    memberCount: 2,
+    leads: ['wang'],
+  },
+  {
+    id: 'tools',
+    name: '工具与临时',
+    status: 'active',
+    note: null,
+    kbSource: 'tools',
+    sourceReady: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    memberCount: 1,
+    leads: [],
+  },
+  {
+    id: '240242',
+    name: '火焰处理',
+    status: 'active',
+    note: '只建了壳，分区未就绪（演示）',
+    kbSource: '240242',
+    sourceReady: false,
+    createdAt: '2026-10-20T00:00:00.000Z',
+    memberCount: 0,
+    leads: [],
+  },
+]
+
 // ---------- 聊天照片 ----------
 /** 上传的照片按 id 存内存，GET /chat/uploads/:id 时原样返回 */
 export const uploads = new Map<string, { name: string; mimeType: string; data: Buffer }>()

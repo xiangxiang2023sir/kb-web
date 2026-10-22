@@ -589,43 +589,71 @@ export class KbDb {
 
   // ---- 项目 / 项目成员（唯一权限来源）----
 
-  insertProject(row: { id: string; name: string; note?: string | null }) {
+  insertProject(row: { id: string; name: string; note?: string | null; kbSource?: string | null }) {
     this.run(
-      `INSERT INTO projects (id, name, status, note, created_at) VALUES (?, ?, 'active', ?, ?)`,
+      `INSERT INTO projects (id, name, status, note, kb_source, created_at) VALUES (?, ?, 'active', ?, ?, ?)`,
       row.id,
       row.name,
       row.note ?? null,
+      row.kbSource ?? row.id,
       new Date().toISOString(),
     )
   }
 
   listProjects() {
-    return this.many(`SELECT id, name, status, note, created_at FROM projects ORDER BY status, id`).map((r) => ({
-      id: String(r.id),
-      name: String(r.name),
-      status: String(r.status),
-      note: r.note == null ? null : String(r.note),
-      createdAt: String(r.created_at),
-    }))
+    return this.many(`SELECT id, name, status, note, kb_source, created_at FROM projects ORDER BY status, id`).map((r) =>
+      this.projectFromRow(r),
+    )
   }
 
   projectById(id: string) {
-    const r = this.one(`SELECT id, name, status, note, created_at FROM projects WHERE id = ?`, id)
-    return r
-      ? {
-          id: String(r.id),
-          name: String(r.name),
-          status: String(r.status),
-          note: r.note == null ? null : String(r.note),
-          createdAt: String(r.created_at),
-        }
-      : null
+    const r = this.one(`SELECT id, name, status, note, kb_source, created_at FROM projects WHERE id = ?`, id)
+    return r ? this.projectFromRow(r) : null
   }
 
-  updateProject(id: string, patch: { name?: string; status?: string; note?: string | null }) {
+  private projectFromRow(r: Record<string, unknown>) {
+    const id = String(r.id)
+    const kb = r.kb_source == null || String(r.kb_source).trim() === '' ? id : String(r.kb_source)
+    return {
+      id,
+      name: String(r.name),
+      status: String(r.status),
+      note: r.note == null ? null : String(r.note),
+      kbSource: kb,
+      createdAt: String(r.created_at),
+    }
+  }
+
+  /** 这个项目入库/检索时用的 GBrain source。空或未填 = 项目 id（独立分区）。 */
+  kbSourceOf(projectId: string): string {
+    const p = this.projectById(projectId)
+    return p?.kbSource || projectId
+  }
+
+  /** 去重后的 GBrain source 列表；主人看全部 active，其他人看自己参与的。默认带 default。 */
+  searchSourcesFor(user: { id: string; role: string }): string[] {
+    const ids =
+      user.role === 'owner'
+        ? this.listProjects()
+            .filter((p) => p.status === 'active')
+            .map((p) => p.id)
+        : this.projectsOfUser(user.id)
+    const out = ['default']
+    const seen = new Set(out)
+    for (const id of ids) {
+      const s = this.kbSourceOf(id)
+      if (seen.has(s)) continue
+      seen.add(s)
+      out.push(s)
+    }
+    return out
+  }
+
+  updateProject(id: string, patch: { name?: string; status?: string; note?: string | null; kbSource?: string | null }) {
     if (patch.name !== undefined) this.run(`UPDATE projects SET name = ? WHERE id = ?`, patch.name, id)
     if (patch.status !== undefined) this.run(`UPDATE projects SET status = ? WHERE id = ?`, patch.status, id)
     if (patch.note !== undefined) this.run(`UPDATE projects SET note = ? WHERE id = ?`, patch.note, id)
+    if (patch.kbSource !== undefined) this.run(`UPDATE projects SET kb_source = ? WHERE id = ?`, patch.kbSource, id)
   }
 
   addProjectMember(projectId: string, userId: string, role: 'lead' | 'member') {
@@ -992,6 +1020,7 @@ CREATE TABLE IF NOT EXISTS projects (
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   note TEXT,
+  kb_source TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -1091,6 +1120,15 @@ const sessionCols = new Set(
   (db.prepare('PRAGMA table_info(chat_sessions)').all() as { name: string }[]).map((c) => String(c.name)),
 )
 if (!sessionCols.has('source')) db.exec(`ALTER TABLE chat_sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'web'`)
+
+{
+  const cols = new Set(
+    (db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => String(c.name)),
+  )
+  if (!cols.has('kb_source')) db.exec('ALTER TABLE projects ADD COLUMN kb_source TEXT')
+  // 老项目没填 = 独立分区（source id = 项目 id）
+  db.exec(`UPDATE projects SET kb_source = id WHERE kb_source IS NULL OR kb_source = ''`)
+}
 
   const store = new KbDb(db)
   const n = store['one'](`SELECT COUNT(*) AS n FROM users`)

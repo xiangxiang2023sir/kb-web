@@ -40,7 +40,7 @@
 3. 有命中 → 模型只根据资料写回答（带 `[1]`）
 4. 没命中 → 固定「没有资料」文案，转入问题队列；不推测
 
-入库：上传 → `extractText()` 抽正文 → 模型建议领域/密级 → 人确认 → `gbrain capture --file --slug --force`。
+入库：上传 → `extractText()` 抽正文 → 模型建议领域/密级 → 人确认 → `gbrain capture --file --slug --force`（有归属项目则 `--source` 用该项目的 GBrain 分区）。新建项目默认同时 `gbrain sources add`；临时项目可关掉独立分区，入库进 tools 或公共库。确认前会先查 source，没有就明确报错，不要把 GBrain 原文甩给车间。
 
 ## agent 写入接口（2026-10-19）
 
@@ -54,7 +54,7 @@
 ## 硬规则（改功能时不要破）
 
 1. **模型只写字，不选工具、不发邮件、不改权限。** 副作用（写库、发信、改工单状态）走后端明确的路由。
-2. **不要改 GBrain 源码。** 只用 CLI：`search --json`、`capture --file --slug --force`、`orphans --json`、`frontmatter validate`。
+2. **不要改 GBrain 源码。** 只用 CLI：`search --json`、`capture --file --slug --force`、`orphans --json`、`frontmatter validate`、`sources list --json`、`sources add --path`。新建独立分区项目时由后端 spawn `sources add`，不要跑 `gbrain sync` / `gbrain serve`。
 3. **密钥和本机路径不进 yaml、不进 git。** `DEEPSEEK_API_KEY`、`GBRAIN_BIN`、`FEISHU_*` 只写 `server/.env`。
 4. **GBrain 用参数数组 spawn，禁止拼进 shell。** 见 `server/src/gbrain.ts`。
 5. **slug 即权限。** 新文档必须 `领域/密级/名字`；检索结果按登录人丢掉不能看的。
@@ -69,7 +69,7 @@
 | 抽文档正文、文件名编码、闲聊判定 | `server/src/text.ts` |
 | GBrain 包装 | `server/src/gbrain.ts` |
 | 权限 | `server/src/access.ts` |
-| HTTP / 上传确认 / 队列 | `server/src/app.ts` |
+| HTTP / 上传确认 / 队列 / 项目 | `server/src/app.ts` |
 | 飞书通道（验签、绑定、回复） | `server/src/feishu.ts`；路由在 `app.ts` 的 `/api/feishu/*` |
 | 生成 / 分类 | `server/src/llm.ts`、`server/prompts/*.md` |
 | 阈值、闲聊说法、检索、历史上限 | `server/config.yaml` |

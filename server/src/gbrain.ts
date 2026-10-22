@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { AppConfig } from './config.js'
 
 export class GBrainError extends Error {
@@ -229,6 +231,105 @@ export async function captureGBrain(config: AppConfig, file: string, slug: strin
   const args = ['capture', '--file', file, '--slug', slug, '--force']
   if (sourceId) args.push('--source', sourceId)
   await runGBrain(config, args, config.gbrain.timeoutMs * 2)
+}
+
+export interface GBrainSourceRow {
+  id: string
+  localPath?: string
+  pageCount?: number
+}
+
+/** gbrain sources list --json：有的版本包一层 {sources}，有的直接给数组。 */
+export function parseSourcesList(raw: unknown): GBrainSourceRow[] {
+  const rows = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === 'object' && Array.isArray((raw as { sources?: unknown }).sources)
+      ? (raw as { sources: unknown[] }).sources
+      : []
+  return rows
+    .map((row) => {
+      const r = row as Record<string, unknown>
+      const id = String(r.id ?? r.source_id ?? '').trim()
+      if (!id) return null
+      return {
+        id,
+        localPath: r.local_path == null ? undefined : String(r.local_path),
+        pageCount: typeof r.page_count === 'number' ? r.page_count : undefined,
+      }
+    })
+    .filter((x): x is GBrainSourceRow => Boolean(x))
+}
+
+export function missingKbSourceMessage(projectName: string, sourceId: string): string {
+  return `项目「${projectName}」还没有知识库分区，请联系管理员在「项目管理」里初始化（GBrain source：${sourceId}）。`
+}
+
+export function isMissingGBrainSourceError(message: string): boolean {
+  return /not found or is archived/i.test(message) || /Source ["'].+["'] not found/i.test(message)
+}
+
+export function kbSourcesRoot(): string {
+  const raw = process.env.KB_SOURCES_DIR?.trim()
+  return raw || join(homedir(), 'kb-sources')
+}
+
+export async function listGBrainSources(config: AppConfig): Promise<GBrainSourceRow[]> {
+  const stdout = await runGBrain(config, ['sources', 'list', '--json'])
+  return parseSourcesList(parseJson(stdout))
+}
+
+export async function gbrainSourceExists(config: AppConfig, sourceId: string): Promise<boolean> {
+  if (!sourceId || sourceId === 'default') return true
+  const rows = await listGBrainSources(config)
+  return rows.some((r) => r.id === sourceId)
+}
+
+function runGit(cwd: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let child
+    try {
+      child = spawn('git', args, {
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd,
+        env: process.env,
+      })
+    } catch (err) {
+      reject(new Error(`无法启动 git：${(err as Error).message}`))
+      return
+    }
+    const err: Buffer[] = []
+    child.stderr.on('data', (b) => err.push(b))
+    child.on('error', (e) => {
+      const missing = (e as NodeJS.ErrnoException).code === 'ENOENT'
+      reject(new Error(missing ? '找不到 git，无法初始化知识库分区目录' : e.message))
+    })
+    child.on('close', (code) => {
+      if (code !== 0) reject(new Error(Buffer.concat(err).toString('utf8').trim() || `git 退出码 ${code}`))
+      else resolve()
+    })
+  })
+}
+
+/** 项目独立分区：建 ~/kb-sources/<id>（git 仓库）再 `gbrain sources add --path`。不跑 sync。 */
+export async function ensureGBrainSource(config: AppConfig, sourceId: string): Promise<'exists' | 'created'> {
+  if (!sourceId || sourceId === 'default') return 'exists'
+  if (await gbrainSourceExists(config, sourceId)) return 'exists'
+  const dir = join(kbSourcesRoot(), sourceId)
+  mkdirSync(dir, { recursive: true })
+  if (!existsSync(join(dir, '.git'))) {
+    await runGit(dir, ['init'])
+  }
+  try {
+    await runGBrain(config, ['sources', 'add', sourceId, '--path', dir])
+  } catch (err) {
+    if (err instanceof GBrainError && /already exists|duplicate|already registered/i.test(err.message)) {
+      return 'exists'
+    }
+    throw err
+  }
+  return 'created'
 }
 
 export async function orphanGBrain(config: AppConfig): Promise<{ slug: string; title: string }[]> {

@@ -106,14 +106,10 @@ export async function handleAsk(ws: WebSocket, user: User, db: KbDb, config: App
     if (project.status !== 'active') throw new GBrainError(`项目 ${pid} 已归档`)
     const role = db.projectRoleOf(pid, user.id)
     if (!role && user.role !== 'owner') throw new GBrainError(`你不是项目 ${pid} 的成员`)
-    askSources = [pid]
+    askSources = [db.kbSourceOf(pid)]
     askRole = role ?? 'lead'
   } else {
-    const mine =
-      user.role === 'owner'
-        ? db.listProjects().filter((p) => p.status === 'active').map((p) => p.id)
-        : db.projectsOfUser(user.id)
-    askSources = ['default', ...mine]
+    askSources = db.searchSourcesFor(user)
   }
 
   const abort = new AbortController()
