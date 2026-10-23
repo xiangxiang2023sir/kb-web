@@ -28,6 +28,8 @@ export interface AskRelay {
 }
 
 /** 把流式问答收成一段，给外部 agent 原样转发。 */
+export const NO_EVIDENCE_MARK = '[[NO_EVIDENCE]]'
+
 export function collectAskResult(): { emit: AskEmit; result: () => AskRelay } {
   let text = ''
   let error = ''
@@ -52,10 +54,22 @@ export function collectAskResult(): { emit: AskEmit; result: () => AskRelay } {
       }
     },
     result() {
-      const body = (error || text).trim()
+      let body = (error || text).trim()
+      // 方案A：模型用固定标记声明"资料不足"，服务端据此判定，不再靠正则猜措辞
+      let noEvidence = false
+      if (body.includes(NO_EVIDENCE_MARK)) {
+        noEvidence = true
+        body = body.split(NO_EVIDENCE_MARK).join('').trim()
+      }
       const lines = citations.map((c) => `${c.marker} ${c.title}`.trim())
       const answer = lines.length ? `${body}\n\n出处：\n${lines.join('\n')}` : body
-      return { answer, error: error || null, phase: phase || (error ? 'error' : 'done'), citations, sessionId }
+      return {
+        answer,
+        error: error || null,
+        phase: noEvidence ? 'no_evidence' : phase || (error ? 'error' : 'done'),
+        citations,
+        sessionId,
+      }
     },
   }
 }

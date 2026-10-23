@@ -1292,7 +1292,12 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       // 「答不上来」的判定：无资料阶段 / 没引用 / 答案里就是"没找到资料"那句话
       // 只有"答案开头就是在说没资料"才算答不上来（避免正常的"未提及"误判）
       // 去掉 markdown 加粗/「结论：」这类前缀再判断
-      const noAnswer = out.phase === 'no_evidence'
+      // 方案A：以模型输出的 [[NO_EVIDENCE]] 标记为准（collectAskResult 已转成 phase=no_evidence）
+      // 兜底：没有引用且答案很短，也视为没资料
+      const ansText = String(out.answer ?? '')
+      const noAnswer =
+        out.phase === 'no_evidence' ||
+        ((out.citations ?? []).length === 0 && ansText.trim().length > 0 && ansText.trim().length < 400)
       const activeProjects = db.listProjects().filter((pj) => pj.status === 'active').map((pj) => pj.id)
       const myProjects = user.role === 'owner' ? activeProjects : db.projectsOfUser(user.id)
       const limitedAccess = user.role !== 'owner' && activeProjects.some((id) => !myProjects.includes(id))
