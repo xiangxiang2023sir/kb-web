@@ -75,7 +75,6 @@ function viaLabel(v?: string | null) {
 
 // ---- 待确认：确认入库 / 驳回 ----
 const confirmVisible = ref(false)
-const rejectVisible = ref(false)
 const acting = ref<DocItem | null>(null)
 const confirmForm = reactive<{ field: Field; sensitivity: Sensitivity; project: string }>({
   field: 'electrical',
@@ -111,7 +110,7 @@ async function doConfirm() {
 
 function openReject(row: DocItem) {
   acting.value = row
-  rejectVisible.value = true
+  void doReject()
 }
 
 async function doReject() {
@@ -124,7 +123,6 @@ async function doReject() {
     })
     await adminApi.rejectDoc(acting.value.id, value || '未说明')
     ElMessage.success('已驳回')
-    rejectVisible.value = false
     await load()
   } catch {
     /* 取消 */
