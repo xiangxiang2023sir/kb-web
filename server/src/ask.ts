@@ -23,7 +23,15 @@ export interface AskRelay {
   answer: string
   error: string | null
   phase: string
-  citations: { marker: string; title: string; slug: string }[]
+  citations: {
+    marker: string
+    title: string
+    slug: string
+    /** 原文片段（≤240 字），与 title 同源，已按调用者权限过滤 */
+    snippet?: string
+    /** 密级，调用方据此决定能否展示原文 */
+    sensitivity?: string
+  }[]
   sessionId: string
 }
 
@@ -43,12 +51,16 @@ export function collectAskResult(): { emit: AskEmit; result: () => AskRelay } {
       if (event.type === 'status') phase = String(event.phase ?? '')
       if (event.type === 'session') sessionId = String(event.sessionId ?? '')
       if (event.type === 'citation') {
-        const c = event.citation as { marker?: string; title?: string; id?: string } | undefined
+        const c = event.citation as
+          | { marker?: string; title?: string; id?: string; snippet?: string; sensitivity?: string }
+          | undefined
         if (c?.title || c?.id) {
           citations.push({
             marker: String(c.marker ?? `[${citations.length + 1}]`),
             title: String(c.title ?? c.id ?? ''),
             slug: String(c.id ?? ''),
+            snippet: c.snippet ? String(c.snippet) : undefined,
+            sensitivity: c.sensitivity ? String(c.sensitivity) : undefined,
           })
         }
       }
