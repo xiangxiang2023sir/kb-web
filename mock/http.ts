@@ -651,6 +651,7 @@ const routes: Route[] = [
       const body = await readBody(req)
       if (body.status) p.status = String(body.status)
       if (body.name) p.name = String(body.name)
+      if (body.note !== undefined) p.note = body.note == null ? null : String(body.note)
       sendJson(res, 200, { ok: true })
     },
   },

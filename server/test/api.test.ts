@@ -708,6 +708,25 @@ agent: { publicOnlyOnly: true }
     const tempBody = (await temp.json()) as { kbSource: string }
     assert.equal(tempBody.kbSource, 'tools')
 
+    // 编辑名称和说明（id / 分区不动）
+    const edited = await fetch(`${base}/api/admin/projects/p-temp01`, {
+      method: 'PATCH',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '临时改名', note: '说明可改' }),
+    })
+    assert.equal(edited.status, 200)
+    const listed = (await (await fetch(`${base}/api/admin/projects`, { headers: { cookie } })).json()) as {
+      id: string
+      name: string
+      note: string | null
+      kbSource?: string
+    }[]
+    const row = listed.find((p) => p.id === 'p-temp01')
+    assert.ok(row)
+    assert.equal(row!.name, '临时改名')
+    assert.equal(row!.note, '说明可改')
+    assert.equal(row!.kbSource, 'tools')
+
     const queued = await fetch(`${base}/api/questions`, {
       method: 'POST',
       headers: { cookie, 'Content-Type': 'application/json' },

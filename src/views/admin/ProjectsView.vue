@@ -38,8 +38,9 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right">
+      <el-table-column label="操作" width="320" fixed="right">
         <template #default="{ row }">
+          <el-button size="small" text type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button size="small" text type="primary" @click="openMembers(row)">成员</el-button>
           <el-button
             v-if="isOwnPartition(row) && row.sourceReady === false"
@@ -87,6 +88,26 @@
       </template>
     </el-dialog>
 
+    <!-- 编辑：只能改名称和说明，id / 分区不动 -->
+    <el-dialog v-model="editVisible" title="编辑项目" width="520px">
+      <el-form label-width="90px">
+        <el-form-item label="项目 id">
+          <el-input :model-value="editForm.id" disabled />
+          <div class="hint">项目 id 对应知识库分区，创建后不能改。</div>
+        </el-form-item>
+        <el-form-item label="项目名称">
+          <el-input v-model="editForm.name" placeholder="如 自研 AGV 二号车" />
+        </el-form-item>
+        <el-form-item label="说明">
+          <el-input v-model="editForm.note" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="doEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 成员 -->
     <el-dialog v-model="membersVisible" :title="`成员 · ${current?.name || ''}`" width="560px">
       <div style="display: flex; gap: 8px; margin-bottom: 10px">
@@ -129,8 +150,10 @@ const list = ref<ProjectItem[]>([])
 const users = ref<{ id: string; name: string; role: string }[]>([])
 
 const createVisible = ref(false)
+const editVisible = ref(false)
 const ensuring = ref('')
 const form = reactive({ id: '', name: '', note: '', ownSource: true, attach: 'tools' as 'tools' | 'default' })
+const editForm = reactive({ id: '', name: '', note: '' })
 
 function isOwnPartition(row: ProjectItem) {
   return (row.kbSource || row.id) === row.id
@@ -188,6 +211,36 @@ async function doCreate() {
     await load()
   } catch (e) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '创建失败'
+    ElMessage.error(msg)
+  } finally {
+    saving.value = false
+  }
+}
+
+function openEdit(row: ProjectItem) {
+  editForm.id = row.id
+  editForm.name = row.name
+  editForm.note = row.note ?? ''
+  editVisible.value = true
+}
+
+async function doEdit() {
+  if (!editForm.id) return
+  if (!editForm.name.trim()) {
+    ElMessage.warning('项目名称必填')
+    return
+  }
+  saving.value = true
+  try {
+    await projectsApi.update(editForm.id, {
+      name: editForm.name.trim(),
+      note: editForm.note.trim() || null,
+    })
+    ElMessage.success('已保存')
+    editVisible.value = false
+    await load()
+  } catch (e) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || '保存失败'
     ElMessage.error(msg)
   } finally {
     saving.value = false
