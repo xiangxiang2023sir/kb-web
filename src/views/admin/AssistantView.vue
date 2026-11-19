@@ -132,7 +132,7 @@ async function send() {
       controller.signal,
       images,
     )
-    if (!answer.content.trim()) answer.content = '（小A 没有返回内容）'
+    if (!answer.content.trim()) answer.content = '（小K 没有返回内容）'
   } catch (err) {
     const message = (err as Error).message || '请求失败'
     if (message.includes('abort') || (err as Error).name === 'AbortError') {
@@ -173,7 +173,7 @@ function useStarter(text: string) {
   <div class="assistant" @paste="onPaste" @dragover.prevent @drop.prevent="onDrop">
     <div class="assistant-head">
       <div>
-        <div class="title">AI知识库管理助手 <span class="badge">小A · AGV 电气</span></div>
+        <div class="title">AI知识库管理助手 <span class="badge">小K · 知识库</span></div>
         <div class="hint">
           可以直接问，也可以粘贴截图或拖进来（报警界面 / 参数页 / 图纸都行）。{{ auth.user?.name }} · 结论以现场实测为准。
         </div>
@@ -193,10 +193,10 @@ function useStarter(text: string) {
       </div>
 
       <div v-for="(m, i) in turns" :key="i" class="turn" :class="m.role">
-        <div class="who">{{ m.role === 'user' ? '我' : '小A' }}</div>
+        <div class="who">{{ m.role === 'user' ? '我' : '小K' }}</div>
         <div class="bubble">
           <span v-if="m.content" class="text">{{ m.content }}</span>
-          <span v-else class="typing">小A 正在想…</span>
+          <span v-else class="typing">小K 正在想…</span>
         </div>
       </div>
 

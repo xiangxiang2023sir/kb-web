@@ -993,7 +993,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
-  // ---- 找小A：把管理端的对话转给本机 Hermes 网关（小A），流式回传 ----
+  // ---- 找小K：把管理端的对话转给本机 Hermes 网关（小K），流式回传 ----
   app.post(
     '/api/admin/assistant/chat',
     requireAdmin,
@@ -1011,7 +1011,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       if (!turns.length) throw new HttpError(400, '消息不能为空')
       if (!hermesConfigured()) throw new HttpError(503, '未配置 HERMES_API_KEY（server/.env）')
 
-      // 截图：前端先传到 /api/chat/uploads，把返回的 url 或 id 放这里；这里转成 base64 交给小A
+      // 截图：前端先传到 /api/chat/uploads，把返回的 url 或 id 放这里；这里转成 base64 交给小K
       const rawImages = Array.isArray(req.body?.images) ? req.body.images : []
       const dataUrls: string[] = []
       for (const item of rawImages.slice(0, 4)) {

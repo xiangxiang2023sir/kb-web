@@ -164,7 +164,7 @@ export const adminApi = {
   deleteUser: (id: string) => http.delete(`/admin/users/${id}`).then((r) => r.data),
 }
 
-// ---------- 找小A（Hermes 网关，管理端） ----------
+// ---------- 找小K（Hermes 网关，管理端） ----------
 export interface AssistantTurn {
   role: 'user' | 'assistant'
   content: string
@@ -222,7 +222,7 @@ export const assistantApi = {
         } else if (event === 'done') {
           full = json.text ?? full
         } else if (event === 'error') {
-          throw new Error(json.message || '小A 出错了')
+          throw new Error(json.message || '小K 出错了')
         }
       }
     }

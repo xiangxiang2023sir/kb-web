@@ -1,8 +1,8 @@
 /**
- * Hermes（小A）对话客户端。
+ * Hermes（小K）对话客户端。
  * 走 Hermes 网关的 OpenAI 兼容接口（默认本机 127.0.0.1:8377，model=agv）。
  * 密钥只放 server/.env：HERMES_API_URL / HERMES_API_KEY / HERMES_MODEL / HERMES_TIMEOUT_MS
- * 规则：这里只做"把话发给小A、把小A的字拿回来"，不做检索、不碰数据库。
+ * 规则：这里只做"把话发给小K、把小K的字拿回来"，不做检索、不碰数据库。
  */
 
 export type HermesPart =
@@ -29,7 +29,7 @@ export interface StreamHandlers {
 }
 
 /**
- * 流式问小A（SSE 解析 OpenAI 兼容 delta）。
+ * 流式问小K（SSE 解析 OpenAI 兼容 delta）。
  * 返回完整回答；HTTP/网络错误抛 Error，由调用方决定怎么回前端。
  */
 export async function askHermesStream(turns: HermesTurn[], handlers: StreamHandlers = {}): Promise<string> {
