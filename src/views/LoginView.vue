@@ -206,9 +206,9 @@ async function doGuest() {
   overflow: hidden;
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 48px 40px;
+  padding: 0 40px;
   background: #f7f5ef;
 }
 
@@ -217,6 +217,7 @@ async function doGuest() {
   width: 100%;
   max-width: 470px;
   text-align: center;
+  margin-top: 11vh;
 }
 
 /* 大图铺满左侧当背景，上面盖一层米色柔光保证文字可读 */
@@ -233,12 +234,13 @@ async function doGuest() {
   position: absolute;
   inset: 0;
   z-index: 1;
+  /* 上浓下淡：顶部护住标题，底部让插画完整显出来 */
   background: linear-gradient(
     180deg,
-    rgba(247, 245, 239, 0.88) 0%,
-    rgba(247, 245, 239, 0.42) 40%,
-    rgba(247, 245, 239, 0.3) 72%,
-    rgba(247, 245, 239, 0.5) 100%
+    rgba(247, 245, 239, 0.94) 0%,
+    rgba(247, 245, 239, 0.82) 26%,
+    rgba(247, 245, 239, 0.4) 55%,
+    rgba(247, 245, 239, 0.15) 100%
   );
   pointer-events: none;
 }
@@ -252,6 +254,7 @@ async function doGuest() {
   font-weight: 700;
   color: #1b1b18;
   letter-spacing: 0.02em;
+  text-shadow: 0 0 14px rgba(247, 245, 239, 0.95), 0 0 4px rgba(247, 245, 239, 0.95);
 }
 
 .brand-sub {
@@ -259,10 +262,11 @@ async function doGuest() {
   z-index: 2;
   margin: 14px auto 0;
   max-width: 400px;
-  color: #4f4e48;
+  color: #3f3e39;
   font-size: 14px;
   line-height: 1.8;
   min-height: 50px;
+  text-shadow: 0 0 12px rgba(247, 245, 239, 0.95), 0 0 3px rgba(247, 245, 239, 0.95);
 }
 
 /* 轮播切换动画与圆点 */
@@ -280,12 +284,15 @@ async function doGuest() {
 .dots {
   position: absolute;
   z-index: 2;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
   bottom: 28px;
   display: flex;
   justify-content: center;
   gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(247, 245, 239, 0.72);
 }
 
 .dot {
