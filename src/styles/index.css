@@ -1,11 +1,11 @@
 /* 工业知识库全局样式：与登录页同一套 Glean 式浅色——白侧栏 + 暖纸色内容区，少动画，注重效率 */
 
 :root {
-  --kb-sidebar-bg: #ffffff;
-  --kb-sidebar-border: #eceae4;
+  --kb-sidebar-bg: #efece6;
+  --kb-sidebar-border: #e2dfd6;
   --kb-sidebar-text: #5a5952;
-  --kb-content-bg: #f7f6f3;
-  --kb-border: #e4e2da;
+  --kb-content-bg: #faf9f6;
+  --kb-border: #e6e4dc;
   --kb-text: #1f2329;
   --kb-text-secondary: #5a6270;
   /* 品牌蓝（取延锋 logo #004898）及 Element Plus 派生色阶 */
@@ -70,14 +70,14 @@ body {
   border-right: none;
   --el-menu-bg-color: transparent;
   --el-menu-text-color: var(--kb-sidebar-text);
-  --el-menu-hover-bg-color: rgba(0, 72, 152, 0.06);
+  --el-menu-hover-bg-color: rgba(0, 72, 152, 0.07);
   --el-menu-active-color: #004898;
   --el-menu-item-height: 46px;
   --el-menu-sub-item-height: 42px;
 }
 
 .app-sidebar .el-menu-item.is-active {
-  background: rgba(0, 72, 152, 0.08);
+  background: rgba(0, 72, 152, 0.1);
 }
 
 .app-sidebar .el-menu-item-group__title {
@@ -169,9 +169,9 @@ body {
     flex-shrink: 0;
     padding: env(safe-area-inset-top, 0) 8px 0 8px;
     min-height: calc(48px + env(safe-area-inset-top, 0px));
-    background: #fff;
+    background: var(--kb-sidebar-bg);
     color: #1b1b18;
-    border-bottom: 1px solid var(--kb-border);
+    border-bottom: 1px solid var(--kb-sidebar-border);
     z-index: 20;
   }
 
