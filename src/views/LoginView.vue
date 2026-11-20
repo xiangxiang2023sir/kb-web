@@ -266,25 +266,23 @@ async function doGuest() {
 }
 
 /* 轮播切换动画与圆点 */
+/* 只淡入淡出：transform 会让绝对定位的背景图改锚小盒子（切换时"先缩小"的原因） */
 .slide-fade-enter-active,
 .slide-fade-leave-active {
-  transition: opacity 0.35s ease, transform 0.35s ease;
+  transition: opacity 0.35s ease;
 }
 
-.slide-fade-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
+.slide-fade-enter-from,
 .slide-fade-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
 }
 
 .dots {
-  position: relative;
+  position: absolute;
   z-index: 2;
-  margin-top: 26px;
+  left: 0;
+  right: 0;
+  bottom: 28px;
   display: flex;
   justify-content: center;
   gap: 8px;
