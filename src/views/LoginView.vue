@@ -20,9 +20,27 @@ const regForm = ref({ employeeNo: '', name: '', password: '', title: '', departm
 
 // ---- 左侧品牌区轮播 ----
 const slides = [
-  { title: '问设备、问规程，每个回答都有出处', sub: '车间 AGV 知识大脑：先检索规程资料再作答，回答附引用，可点开核对原文。' },
-  { title: '答不了不编造，问题有人接住', sub: '检索不到依据就明说没有，一键转入问题队列，责任人解答后入库，越用越全。' },
-  { title: '经验随手沉淀，审核后入库', sub: '对话里说「记一下」，或把好回答勾选入库；管理员确认后，全厂都能检索到。' },
+  {
+    titleA: '问设备、问规程，',
+    titleB: '每个回答都有出处',
+    sub: '车间 AGV 知识大脑：先检索规程资料再作答，回答附引用，可点开核对原文。',
+    img: '/login/slide-cite.jpg',
+    alt: '工程师用平板提问，回答附带出处引用',
+  },
+  {
+    titleA: '答不了不编造，',
+    titleB: '问题有人接住',
+    sub: '检索不到依据就明说没有，一键转入问题队列，责任人解答后入库，越用越全。',
+    img: '/login/slide-queue.jpg',
+    alt: '答不了的问题转给责任人解答',
+  },
+  {
+    titleA: '经验随手沉淀，',
+    titleB: '审核后入库',
+    sub: '对话里说「记一下」，或把好回答勾选入库；管理员确认后，全厂都能检索到。',
+    img: '/login/slide-archive.jpg',
+    alt: '经验整理成知识卡片，审核后入库',
+  },
 ]
 const slideIdx = ref(0)
 let slideTimer: ReturnType<typeof setInterval> | undefined
@@ -103,51 +121,9 @@ async function doGuest() {
       <div class="brand-copy">
         <Transition name="slide-fade" mode="out-in">
           <div :key="slideIdx" class="slide">
-            <template v-if="slideIdx === 0">
-              <h2>问设备、问规程，<br />每个回答都有出处</h2>
-              <p class="brand-sub">{{ slides[0].sub }}</p>
-              <div class="qa-demo" aria-hidden="true">
-                <div class="qa-q">行走电机 F009 报警怎么复位？</div>
-                <div class="qa-a">
-                  <p class="qa-a-text">
-                    先断主电，等 5 分钟直流母线放电，面板熄灭后长按 STOP/RESET 3 秒复位；若复位后反复报警，检查制动电阻接线。
-                  </p>
-                  <div class="qa-cite">
-                    <span class="qa-idx">[1]</span>
-                    <span class="qa-cite-title">变频器 F009 故障处理规程</span>
-                    <span class="qa-cite-tag">电气</span>
-                  </div>
-                  <div class="qa-conf">置信度：依据充分（92%）</div>
-                </div>
-              </div>
-            </template>
-
-            <template v-else-if="slideIdx === 1">
-              <h2>答不了不编造，<br />问题有人接住</h2>
-              <p class="brand-sub">{{ slides[1].sub }}</p>
-              <div class="qa-demo" aria-hidden="true">
-                <div class="qa-q">三号充电桩通讯超时怎么处理？</div>
-                <div class="qa-a">
-                  <p class="qa-a-text muted">知识库中未找到相关依据。为避免误导，不做推测性回答。</p>
-                  <div class="qa-queue">已转入问题队列 · 待电气责任人解答</div>
-                </div>
-              </div>
-            </template>
-
-            <template v-else>
-              <h2>经验随手沉淀，<br />审核后入库</h2>
-              <p class="brand-sub">{{ slides[2].sub }}</p>
-              <div class="qa-demo" aria-hidden="true">
-                <div class="qa-q">记一下：F009 复位后仍报警，先查制动电阻</div>
-                <div class="qa-a">
-                  <p class="qa-a-text">已整理成知识草稿，进入「待确认」；管理员审核后全厂可检索。</p>
-                  <div class="qa-cite">
-                    <span class="qa-cite-title">入库预览 · 待确认</span>
-                    <span class="qa-cite-tag">电气</span>
-                  </div>
-                </div>
-              </div>
-            </template>
+            <h2>{{ slides[slideIdx].titleA }}<br />{{ slides[slideIdx].titleB }}</h2>
+            <p class="brand-sub">{{ slides[slideIdx].sub }}</p>
+            <img class="slide-img" :src="slides[slideIdx].img" :alt="slides[slideIdx].alt" />
           </div>
         </Transition>
 
@@ -169,6 +145,7 @@ async function doGuest() {
     <main class="form-pane">
       <div class="login-panel">
         <img class="brand-logo" src="/yanfeng-logo.png" width="397" height="117" alt="延锋 Yanfeng" />
+        <h1 class="product-name">IMC 工业知识库</h1>
 
         <el-form class="login-form" size="large" label-position="top" @submit.prevent="doLogin">
           <el-form-item label="工号">
@@ -262,84 +239,16 @@ async function doGuest() {
   min-height: 50px;
 }
 
-.qa-demo {
-  margin-top: 30px;
-  padding: 22px;
-  background: #f4e9d2;
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  text-align: left;
-  min-height: 190px;
-}
-
-.qa-q {
-  align-self: flex-end;
-  max-width: 85%;
-  padding: 8px 14px;
-  background: #004898;
-  color: #fff;
-  font-size: 13px;
-  line-height: 1.5;
-  border-radius: 12px 12px 4px 12px;
-}
-
-.qa-a {
-  background: #fff;
-  border: 1px solid #e8e2d2;
-  border-radius: 12px 12px 12px 4px;
-  padding: 12px 14px;
-}
-
-.qa-a-text {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.7;
-  color: #33322d;
-}
-
-.qa-a-text.muted {
-  color: #73726b;
-}
-
-.qa-cite {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid #efece2;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #6b6a60;
-}
-
-.qa-idx {
-  color: #004898;
-  font-weight: 600;
-}
-
-.qa-cite-tag {
-  margin-left: auto;
-  padding: 0 6px;
-  border: 1px solid #d8d6d0;
-  border-radius: 4px;
-  font-size: 11px;
-  line-height: 18px;
-}
-
-.qa-conf {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #3c7a4e;
-}
-
-.qa-queue {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid #efece2;
-  font-size: 12px;
-  color: #9a6a1f;
+.slide-img {
+  display: block;
+  width: min(520px, 100%);
+  margin: 30px auto 0;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 18px;
+  /* 边缘羽化：融进米色底 */
+  -webkit-mask-image: radial-gradient(ellipse 94% 94% at 50% 50%, #000 55%, transparent 96%);
+  mask-image: radial-gradient(ellipse 94% 94% at 50% 50%, #000 55%, transparent 96%);
 }
 
 /* 轮播切换动画与圆点 */
@@ -399,7 +308,16 @@ async function doGuest() {
   display: block;
   height: 34px;
   width: auto;
-  margin: 0 auto 36px;
+  margin: 0 auto 14px;
+}
+
+.product-name {
+  margin: 0 0 30px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #1b1b18;
+  text-align: center;
 }
 
 .login-form :deep(.el-form-item) {
