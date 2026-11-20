@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
 import type { HealthIssue } from '@/types'
-import { healthTypeLabels } from '@/utils/labels'
+import { healthTypeLabels, healthTypeTag } from '@/utils/labels'
 
 const list = ref<HealthIssue[]>([])
 const loading = ref(false)
@@ -33,8 +33,6 @@ async function run() {
   }
 }
 
-const typeTag = (t: HealthIssue['type']) =>
-  t === 'dead_link' ? 'danger' : t === 'orphan_reference' ? 'warning' : ('info' as const)
 </script>
 
 <template>
@@ -48,7 +46,7 @@ const typeTag = (t: HealthIssue['type']) =>
     <el-table v-else v-loading="loading" :data="list" empty-text="暂无问题，知识库状态良好">
       <el-table-column label="类型" width="120">
         <template #default="{ row }">
-          <el-tag size="small" :type="typeTag(row.type)">
+          <el-tag size="small" :type="healthTypeTag(row.type)">
             {{ healthTypeLabels[row.type as keyof typeof healthTypeLabels] }}
           </el-tag>
         </template>

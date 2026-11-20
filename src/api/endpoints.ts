@@ -143,7 +143,7 @@ export const adminApi = {
   /** 解答后入库：Hermes 自动分类，随后进入待确认队列 */
   resolveQuestion: (
     id: string,
-    payload: { answer: string; title: string; field: Field; sensitivity: Sensitivity },
+    payload: { answer: string; title: string; field: Field; sensitivity: Sensitivity; project?: string | null },
   ) => http.post(`/admin/questions/${id}/resolve`, payload),
 
   users: () => http.get<User[]>('/admin/users').then((r) => r.data),
@@ -237,6 +237,8 @@ export interface KbPageItem {
   updatedAt: string | null
   field: string
   sensitivity: string
+  /** 所属 GBrain 分区（项目分区或 default/tools），查看/删除时要带上 */
+  sourceId?: string
 }
 export interface KbStatus {
   stats: {

@@ -116,11 +116,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import MarkdownIt from 'markdown-it'
 import { kbApi, projectsApi, type KbPageItem, type KbStatus } from '@/api/endpoints'
 import { useAuthStore } from '@/stores/auth'
+import { renderKbMd } from '@/utils/markdown'
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
 const auth = useAuthStore()
 const isOwner = computed(() => auth.user?.role === 'owner')
 
@@ -135,7 +134,7 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const currentSlug = ref('')
 const currentBody = ref('')
-const rendered = computed(() => md.render(currentBody.value || ''))
+const rendered = computed(() => renderKbMd(currentBody.value || ''))
 
 function fmt(v: string | null) {
   return v ? v.replace('T', ' ').slice(0, 16) : '—'

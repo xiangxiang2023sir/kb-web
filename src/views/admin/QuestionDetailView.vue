@@ -61,7 +61,13 @@ async function submit() {
   }
   saving.value = true
   try {
-    await adminApi.resolveQuestion(q.value.id, { ...form })
+    await adminApi.resolveQuestion(q.value.id, {
+      answer: form.answer,
+      title: form.title,
+      field: form.field,
+      sensitivity: form.sensitivity,
+      project: form.project || null,
+    })
     ElMessage.success('已解决，知识进入待确认队列')
     router.push({ name: 'admin-questions' })
   } catch {

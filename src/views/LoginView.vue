@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/endpoints'
@@ -17,6 +17,35 @@ const error = ref('')
 const regVisible = ref(false)
 const regLoading = ref(false)
 const regForm = ref({ employeeNo: '', name: '', password: '', title: '', department: '', note: '' })
+
+// ---- 左侧品牌区轮播 ----
+const slides = [
+  {
+    title: '准确性 · 答必有据',
+    sub: '回答先检索规程资料，逐条附出处、可核对原文；没有依据就明说没有，不编造。',
+    img: '/login/slide-accuracy.jpg',
+  },
+  {
+    title: '保密性 · 分级管控',
+    sub: '公开 / 内部 / 机密 / 绝密四级密级，按角色与项目成员过滤，越级看不到。',
+    img: '/login/slide-security.jpg',
+  },
+  {
+    title: '可接入性 · 接口开放',
+    sub: '问答接口对外开放：飞书、豆包、Cursor 等多个 Agent 都能接入，一个大脑多处复用。',
+    img: '/login/slide-connect.jpg',
+  },
+]
+const slideIdx = ref(0)
+let slideTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  slideTimer = setInterval(() => {
+    slideIdx.value = (slideIdx.value + 1) % slides.length
+  }, 5000)
+})
+onUnmounted(() => {
+  if (slideTimer) clearInterval(slideTimer)
+})
 
 async function doRegister() {
   if (!regForm.value.employeeNo.trim() || !regForm.value.name.trim() || regForm.value.password.length < 6 || !regForm.value.title.trim()) {
@@ -81,64 +110,63 @@ async function doGuest() {
 
 <template>
   <div class="login-page">
-    <div class="login-atmosphere" aria-hidden="true">
-      <div class="glow glow-a" />
-      <div class="glow glow-b" />
-      <div class="grid" />
-      <div class="rail" />
-    </div>
+    <!-- 左侧品牌区：轮播价值主张（窄屏隐藏） -->
+    <section class="brand-pane">
+      <div class="brand-copy">
+        <Transition name="slide-fade" mode="out-in">
+          <div :key="slideIdx" class="slide">
+            <img class="slide-bg" :src="slides[slideIdx].img" alt="" aria-hidden="true" />
+            <div class="slide-veil" />
+            <h2>{{ slides[slideIdx].title }}</h2>
+            <p class="brand-sub">{{ slides[slideIdx].sub }}</p>
+          </div>
+        </Transition>
 
-    <main class="login-panel">
-      <header class="brand">
-        <div class="company">
-          <img
-            class="company-mark"
-            src="/yanfeng-wordmark.svg"
-            width="168"
-            height="28"
-            alt="延锋 YANFENG"
+        <div class="dots">
+          <button
+            v-for="(s, i) in slides"
+            :key="i"
+            type="button"
+            class="dot"
+            :class="{ on: i === slideIdx }"
+            :aria-label="`第 ${i + 1} 页`"
+            @click="slideIdx = i"
           />
         </div>
-        <div class="mark" aria-hidden="true">
-          <span>知</span>
+      </div>
+    </section>
+
+    <!-- 右侧表单区 -->
+    <main class="form-pane">
+      <div class="login-panel">
+        <img class="brand-logo" src="/yanfeng-logo.png" width="397" height="117" alt="延锋 Yanfeng" />
+        <h1 class="product-name">IMC 工业知识库</h1>
+
+        <el-form class="login-form" size="large" label-position="top" @submit.prevent="doLogin">
+          <el-form-item label="工号">
+            <el-input v-model="username" placeholder="请输入工号" autofocus />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="password" type="password" placeholder="请输入密码" show-password />
+          </el-form-item>
+          <el-button type="primary" class="full primary-btn" native-type="submit" :loading="loading">
+            登录
+          </el-button>
+        </el-form>
+
+        <div class="login-links">
+          <el-button text class="link-btn" :loading="loading" @click="doGuest">游客进入</el-button>
+          <el-button text class="link-btn" @click="regVisible = true">申请注册账号</el-button>
         </div>
-        <h1>工业知识库</h1>
-        <p class="sub">上海延锋 · 工厂内部 AI 问答 · 回答均有出处</p>
-      </header>
 
-      <el-form class="login-form" size="large" @submit.prevent="doLogin">
-        <el-form-item>
-          <el-input v-model="username" placeholder="工号（如 1080040269）" autofocus />
-        </el-form-item>
-        <el-form-item>
-          <el-input
-            v-model="password"
-            type="password"
-            placeholder="密码"
-            show-password
-            @keyup.enter="doLogin"
-          />
-        </el-form-item>
-        <el-button type="primary" class="full primary-btn" native-type="submit" :loading="loading">
-          登录
-        </el-button>
-      </el-form>
-
-      <div class="or-line"><span>或</span></div>
-
-      <el-button class="full guest-btn" :loading="loading" @click="doGuest">
-        游客进入（仅公开问答）
-      </el-button>
-
-      <el-button class="full register-btn" text @click="regVisible = true">申请注册账号</el-button>
-
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+      </div>
     </main>
 
     <el-dialog v-model="regVisible" title="申请注册（管理员批准后可用）" width="min(440px, 92vw)">
       <el-form label-width="80px">
         <el-form-item label="工号">
-          <el-input v-model="regForm.employeeNo" placeholder="登录用，纯数字或字母（如 1080040269）" />
+          <el-input v-model="regForm.employeeNo" placeholder="登录用，纯数字或字母" />
         </el-form-item>
         <el-form-item label="姓名">
           <el-input v-model="regForm.name" placeholder="真实姓名，界面显示用" />
@@ -165,168 +193,166 @@ async function doGuest() {
 </template>
 
 <style scoped>
+/* Glean app.glean.com 式分屏：左米色轮播品牌区，右白底极简表单；窄屏只留表单 */
 .login-page {
-  position: relative;
-  height: 100%;
-  min-height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px;
-  padding-top: max(24px, env(safe-area-inset-top, 0px));
-  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
-  overflow: hidden;
-  background: #151a21;
-  color: #e8edf4;
+  min-height: 100%;
+  background: #fff;
 }
 
-.login-atmosphere {
+/* ===== 左侧品牌区 ===== */
+.brand-pane {
+  position: relative;
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 40px;
+  background: #f7f5ef;
+}
+
+/* 注意：这里不能加 position，否则 .slide-bg 的绝对定位会锚在小盒子上而不是整栏 */
+.brand-copy {
+  width: 100%;
+  max-width: 470px;
+  text-align: center;
+  margin-top: 11vh;
+}
+
+/* 大图铺满左侧当背景，上面盖一层米色柔光保证文字可读 */
+.slide-bg {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.slide-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  /* 上浓下淡：顶部护住标题，底部让插画完整显出来 */
+  background: linear-gradient(
+    180deg,
+    rgba(247, 245, 239, 0.94) 0%,
+    rgba(247, 245, 239, 0.82) 26%,
+    rgba(247, 245, 239, 0.4) 55%,
+    rgba(247, 245, 239, 0.15) 100%
+  );
   pointer-events: none;
 }
 
-.glow {
+.slide h2 {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  font-size: 27px;
+  line-height: 1.4;
+  font-weight: 700;
+  color: #1b1b18;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 14px rgba(247, 245, 239, 0.95), 0 0 4px rgba(247, 245, 239, 0.95);
+}
+
+.brand-sub {
+  position: relative;
+  z-index: 2;
+  margin: 14px auto 0;
+  max-width: 400px;
+  color: #3f3e39;
+  font-size: 14px;
+  line-height: 1.8;
+  min-height: 50px;
+  text-shadow: 0 0 12px rgba(247, 245, 239, 0.95), 0 0 3px rgba(247, 245, 239, 0.95);
+}
+
+/* 轮播切换动画与圆点 */
+/* 只淡入淡出：transform 会让绝对定位的背景图改锚小盒子（切换时"先缩小"的原因） */
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: opacity 0.35s ease;
+}
+
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  opacity: 0;
+}
+
+.dots {
   position: absolute;
+  z-index: 2;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 28px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(247, 245, 239, 0.72);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.55;
+  background: #d5d0c2;
+  cursor: pointer;
+  transition: background 0.2s ease;
 }
 
-.glow-a {
-  width: min(52vw, 520px);
-  height: min(52vw, 520px);
-  top: -12%;
-  right: -8%;
-  background: radial-gradient(circle, rgba(43, 95, 217, 0.55) 0%, transparent 70%);
-  animation: drift-a 18s ease-in-out infinite alternate;
+.dot.on {
+  background: #004898;
 }
 
-.glow-b {
-  width: min(48vw, 460px);
-  height: min(48vw, 460px);
-  bottom: -18%;
-  left: -10%;
-  background: radial-gradient(circle, rgba(56, 189, 168, 0.22) 0%, transparent 70%);
-  animation: drift-b 22s ease-in-out infinite alternate;
-}
-
-.grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 75%);
-}
-
-.rail {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: linear-gradient(180deg, transparent, #2b5fd9 30%, #3aa89a 70%, transparent);
-  opacity: 0.85;
+/* ===== 右侧表单区 ===== */
+.form-pane {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  padding-top: max(32px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(32px, env(safe-area-inset-bottom, 0px));
 }
 
 .login-panel {
-  position: relative;
-  z-index: 1;
-  width: min(400px, 100%);
-  padding: 36px 32px 28px;
-  border-radius: 14px;
-  background: rgba(28, 35, 45, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(16px);
-  animation: panel-in 0.55s ease-out both;
+  width: min(360px, 100%);
 }
 
-.brand {
-  text-align: center;
-  margin-bottom: 28px;
-  animation: brand-in 0.7s ease-out both;
-}
-
-.company {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 18px;
-}
-
-.company-mark {
+.brand-logo {
   display: block;
-  width: 168px;
-  height: 28px;
-  opacity: 0.92;
-}
-
-.mark {
-  width: 48px;
-  height: 48px;
+  height: 34px;
+  width: auto;
   margin: 0 auto 14px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: linear-gradient(145deg, #3a74ef, #2b5fd9 55%, #1e4bb8);
-  box-shadow: 0 10px 24px rgba(43, 95, 217, 0.35);
-  animation: mark-pop 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.mark span {
-  font-size: 24px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.04em;
-  line-height: 1;
-}
-
-h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: #fff;
-}
-
-.sub {
-  margin: 10px 0 0;
-  color: rgba(194, 202, 212, 0.88);
-  font-size: 13px;
-  letter-spacing: 0.02em;
-  line-height: 1.5;
+.product-name {
+  margin: 0 0 30px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #1b1b18;
+  text-align: center;
 }
 
 .login-form :deep(.el-form-item) {
   margin-bottom: 14px;
 }
 
+.login-form :deep(.el-form-item__label) {
+  color: #3c3b35;
+  font-size: 13px;
+  padding-bottom: 4px;
+}
+
 .login-form :deep(.el-input__wrapper) {
-  background: rgba(15, 20, 28, 0.65);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
   border-radius: 8px;
-}
-
-.login-form :deep(.el-input__wrapper:hover),
-.login-form :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1px rgba(43, 95, 217, 0.65) inset;
-}
-
-.login-form :deep(.el-input__inner) {
-  color: #e8edf4;
-  font-size: 16px;
-}
-
-.login-form :deep(.el-input__inner::placeholder) {
-  color: rgba(194, 202, 212, 0.55);
-}
-
-.login-form :deep(.el-input__suffix) {
-  color: rgba(194, 202, 212, 0.7);
 }
 
 .full {
@@ -335,142 +361,61 @@ h1 {
 
 .primary-btn {
   height: 44px;
-  margin-top: 4px;
+  margin-top: 6px;
   font-weight: 600;
   letter-spacing: 0.08em;
   border: none;
-  background: linear-gradient(135deg, #3a74ef, #2b5fd9);
+  background: #004898;
 }
 
-.primary-btn:hover {
-  background: linear-gradient(135deg, #4a82f5, #3368e3);
+.primary-btn:hover,
+.primary-btn:focus {
+  background: #003a7c;
 }
 
-.or-line {
+.login-links {
+  margin-top: 12px;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin: 20px 0 16px;
-  color: rgba(194, 202, 212, 0.55);
-  font-size: 12px;
 }
 
-.or-line::before,
-.or-line::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+.link-btn {
+  color: #73726b;
+  font-size: 13px;
 }
 
-.guest-btn {
-  height: 42px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #d7dee8;
-}
-
-.guest-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.22);
-  color: #fff;
-}
-
-.register-btn {
-  margin-top: 8px;
-  color: rgba(194, 202, 212, 0.85);
-}
-
-.register-btn:hover {
-  color: #fff;
+.link-btn:hover {
+  color: #004898;
 }
 
 .error {
-  color: #f89898;
+  color: #c45656;
   font-size: 13px;
   margin: 14px 0 0;
   text-align: center;
 }
 
-@keyframes panel-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes brand-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes mark-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.86);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes drift-a {
-  from {
-    transform: translate(0, 0);
-  }
-  to {
-    transform: translate(-24px, 18px);
-  }
-}
-
-@keyframes drift-b {
-  from {
-    transform: translate(0, 0);
-  }
-  to {
-    transform: translate(20px, -16px);
-  }
-}
-
-@media (max-width: 480px) {
-  .login-panel {
-    padding: 28px 20px 22px;
-    border-radius: 12px;
-  }
-
-  h1 {
-    font-size: 24px;
-    letter-spacing: 0.1em;
-  }
-
-  .primary-btn,
-  .guest-btn {
-    min-height: 44px;
-  }
-
-  .rail {
+/* 窄屏：品牌区隐藏，表单独占（手机不滚动就能看到登录按钮） */
+@media (max-width: 900px) {
+  .brand-pane {
     display: none;
   }
 }
 
+@media (max-width: 480px) {
+  .form-pane {
+    padding: 24px 18px;
+    padding-top: max(24px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .glow-a,
-  .glow-b,
-  .login-panel,
-  .brand,
-  .mark {
-    animation: none;
+  .slide-fade-enter-active,
+  .slide-fade-leave-active,
+  .dot {
+    transition: none;
   }
 }
 </style>

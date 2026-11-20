@@ -1,14 +1,21 @@
-/* 工业知识库全局样式：深色侧边栏 + 浅色内容区，少动画，注重效率 */
+/* 工业知识库全局样式：与登录页同一套 Glean 式浅色——白侧栏 + 暖纸色内容区，少动画，注重效率 */
 
 :root {
-  --kb-sidebar-bg: #1f262e;
-  --kb-sidebar-border: rgba(255, 255, 255, 0.08);
-  --kb-sidebar-text: #c2cad4;
-  --kb-content-bg: #f3f4f6;
-  --kb-border: #dcdfe4;
+  --kb-sidebar-bg: #efece6;
+  --kb-sidebar-border: #e2dfd6;
+  --kb-sidebar-text: #5a5952;
+  --kb-content-bg: #faf9f6;
+  --kb-border: #e6e4dc;
   --kb-text: #1f2329;
   --kb-text-secondary: #5a6270;
-  --el-color-primary: #2b5fd9;
+  /* 品牌蓝（取延锋 logo #004898）及 Element Plus 派生色阶 */
+  --el-color-primary: #004898;
+  --el-color-primary-light-3: #4d7fb7;
+  --el-color-primary-light-5: #80a4cc;
+  --el-color-primary-light-7: #b3c8e0;
+  --el-color-primary-light-8: #ccdbeb;
+  --el-color-primary-light-9: #e6edf5;
+  --el-color-primary-dark-2: #003a7a;
 }
 
 * {
@@ -43,6 +50,7 @@ body {
   flex-direction: column;
   background: var(--kb-sidebar-bg);
   color: var(--kb-sidebar-text);
+  border-right: 1px solid var(--kb-sidebar-border);
 }
 
 .app-sidebar .logo {
@@ -53,7 +61,7 @@ body {
   padding: 0 18px;
   font-size: 17px;
   font-weight: 600;
-  color: #fff;
+  color: #1b1b18;
   border-bottom: 1px solid var(--kb-sidebar-border);
   letter-spacing: 1px;
 }
@@ -62,18 +70,18 @@ body {
   border-right: none;
   --el-menu-bg-color: transparent;
   --el-menu-text-color: var(--kb-sidebar-text);
-  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.06);
-  --el-menu-active-color: #ffffff;
+  --el-menu-hover-bg-color: rgba(0, 72, 152, 0.07);
+  --el-menu-active-color: #004898;
   --el-menu-item-height: 46px;
   --el-menu-sub-item-height: 42px;
 }
 
 .app-sidebar .el-menu-item.is-active {
-  background: rgba(43, 95, 217, 0.35);
+  background: rgba(0, 72, 152, 0.1);
 }
 
 .app-sidebar .el-menu-item-group__title {
-  color: rgba(255, 255, 255, 0.4);
+  color: #a8a59b;
   font-size: 12px;
 }
 
@@ -161,8 +169,9 @@ body {
     flex-shrink: 0;
     padding: env(safe-area-inset-top, 0) 8px 0 8px;
     min-height: calc(48px + env(safe-area-inset-top, 0px));
-    background: #1f262e;
-    color: #fff;
+    background: var(--kb-sidebar-bg);
+    color: #1b1b18;
+    border-bottom: 1px solid var(--kb-sidebar-border);
     z-index: 20;
   }
 
@@ -178,7 +187,7 @@ body {
     appearance: none;
     border: 0;
     background: transparent;
-    color: #fff;
+    color: #1b1b18;
     min-width: 40px;
     min-height: 40px;
     padding: 0 8px;

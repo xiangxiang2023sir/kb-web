@@ -2,18 +2,14 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import MarkdownIt from 'markdown-it'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, Picture, Promotion, VideoPause } from '@element-plus/icons-vue'
+import { Close, Files, Picture, Promotion, VideoPause } from '@element-plus/icons-vue'
 import { useChatStore, type ChatMessage } from '@/stores/chat'
 import CitationCard from '@/components/CitationCard.vue'
 import ConfidenceBadge from '@/components/ConfidenceBadge.vue'
 import { chatSourceLabels } from '@/utils/labels'
+import { renderMd } from '@/utils/markdown'
 import { intakeApi, projectsApi } from '@/api/endpoints'
-
-// html: false —— 转义原始 HTML，防止注入；需要富 Markdown 渲染时可再扩展
-const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
-const renderMd = (text: string) => md.render(text)
 
 const route = useRoute()
 const router = useRouter()
@@ -332,35 +328,39 @@ function retry(m: ChatMessage) {
     </div>
 
     <div v-if="!readOnly" class="chat-input-area">
-      <div v-if="chat.pendingAttachments.length" class="attach-list">
-        <div v-for="a in chat.pendingAttachments" :key="a.id" class="attach-item">
-          <el-image :src="a.url" fit="cover" :preview-src-list="[a.url]" preview-teleported />
-          <el-icon class="remove" @click="chat.removeAttachment(a.id)"><Close /></el-icon>
+      <div class="composer">
+        <div v-if="chat.pendingAttachments.length" class="attach-list">
+          <div v-for="a in chat.pendingAttachments" :key="a.id" class="attach-item">
+            <el-image :src="a.url" fit="cover" :preview-src-list="[a.url]" preview-teleported />
+            <el-icon class="remove" @click="chat.removeAttachment(a.id)"><Close /></el-icon>
+          </div>
         </div>
-      </div>
-      <div class="chat-input">
-        <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPick" />
-        <el-button :icon="Picture" circle title="上传照片（也可直接粘贴截图）" @click="fileInput?.click()" />
         <el-input
           v-model="draft"
           type="textarea"
           :rows="3"
           resize="none"
-          placeholder="输入问题，Enter 发送，Shift+Enter 换行；可上传或粘贴照片"
+          class="composer-input"
+          placeholder="输入问题，可上传或粘贴照片…"
           @keydown.enter.exact.prevent="send"
           @paste="onPaste"
         />
-        <el-button
-          v-if="!asking"
-          type="primary"
-          :icon="Promotion"
-          :disabled="!draft.trim() && chat.pendingAttachments.length === 0"
-          class="send-btn"
-          @click="send"
-        >
-          发送
-        </el-button>
-        <el-button v-else :icon="VideoPause" class="send-btn" @click="chat.cancel()">停止</el-button>
+        <div class="composer-bar">
+          <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPick" />
+          <el-button :icon="Picture" circle title="上传照片（也可直接粘贴截图）" @click="fileInput?.click()" />
+          <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+          <el-button
+            v-if="!asking"
+            type="primary"
+            :icon="Promotion"
+            :disabled="!draft.trim() && chat.pendingAttachments.length === 0"
+            class="send-btn"
+            @click="send"
+          >
+            发送
+          </el-button>
+          <el-button v-else :icon="VideoPause" class="send-btn" @click="chat.cancel()">停止</el-button>
+        </div>
       </div>
     </div>
   </div>
@@ -443,8 +443,8 @@ function retry(m: ChatMessage) {
 }
 
 .msg-row.user .msg-bubble {
-  background: #e3ecfd;
-  border: 1px solid #c8d9f7;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-8);
 }
 
 .msg-row.assistant .msg-bubble {
@@ -502,25 +502,51 @@ function retry(m: ChatMessage) {
 }
 
 .chat-input-area {
+  padding: 8px 20px 16px;
+}
+
+/* 悬浮圆角输入卡：聚焦时描边品牌蓝 */
+.composer {
+  max-width: 820px;
+  margin: 0 auto;
   background: #fff;
-  border-top: 1px solid var(--kb-border);
+  border: 1px solid var(--kb-border);
+  border-radius: 16px;
+  padding: 8px 10px;
+  box-shadow: 0 2px 10px rgba(31, 35, 41, 0.05);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.chat-input {
+.composer:focus-within {
+  border-color: rgba(0, 72, 152, 0.55);
+  box-shadow: 0 0 0 3px rgba(0, 72, 152, 0.12);
+}
+
+.composer-input :deep(.el-textarea__inner) {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 15px;
+}
+
+.composer-bar {
   display: flex;
-  gap: 10px;
-  padding: 12px 20px 16px;
-  align-items: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 0;
 }
 
-.chat-input :deep(textarea) {
-  font-size: 16px;
+.composer-hint {
+  margin-left: auto;
+  color: var(--kb-text-secondary);
+  font-size: 12px;
 }
 
 .attach-list {
   display: flex;
   gap: 10px;
-  padding: 12px 20px 0;
+  padding: 4px 4px 8px;
   flex-wrap: wrap;
 }
 
@@ -571,8 +597,7 @@ function retry(m: ChatMessage) {
 }
 
 .send-btn {
-  height: auto;
-  align-self: stretch;
+  border-radius: 10px;
 }
 
 @media (max-width: 768px) {
@@ -594,26 +619,21 @@ function retry(m: ChatMessage) {
   }
 
   .chat-input-area {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding: 6px 12px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
   }
 
-  .chat-input {
-    padding: 8px 12px 12px;
-    gap: 8px;
+  .composer-hint {
+    display: none;
   }
 
-  .attach-list {
-    padding: 10px 12px 0;
-  }
-
-  .chat-input :deep(.el-textarea__inner) {
+  .composer-input :deep(.el-textarea__inner) {
     min-height: 44px;
   }
 
   .send-btn {
     min-width: 64px;
-    min-height: 44px;
-    align-self: flex-end;
+    min-height: 40px;
   }
 
   .intake-card {
@@ -658,13 +678,11 @@ function retry(m: ChatMessage) {
     animation: none;
   }
 }
-</style>
 
-<style scoped>
 .intake-card {
   background: #fff;
-  border: 1px solid #e4e7ed;
-  border-left: 3px solid #409eff;
+  border: 1px solid var(--kb-border);
+  border-left: 3px solid #004898;
   border-radius: 8px;
   padding: 12px 14px;
   max-width: 720px;
@@ -675,7 +693,7 @@ function retry(m: ChatMessage) {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #909399;
+  color: var(--kb-text-secondary);
   margin-bottom: 8px;
 }
 .intake-actions {
@@ -685,8 +703,7 @@ function retry(m: ChatMessage) {
 }
 .intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .intake-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.intake-card .intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
-.intake-warn { font-size: 12px; color: #e6a23c; margin-bottom: 8px; }
+.intake-warn { font-size: 12px; color: var(--el-color-warning); margin-bottom: 8px; }
 .intake-warn .dup { margin-right: 8px; text-decoration: underline; }
 .intake-body {
   max-height: 46vh; overflow: auto; background: #fafafa; border-radius: 6px;

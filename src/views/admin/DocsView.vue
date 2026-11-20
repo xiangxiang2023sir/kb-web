@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { adminApi, projectsApi } from '@/api/endpoints'
 import type { DocItem, DocStatus, Field, Sensitivity } from '@/types'
-import { docStatusLabels, fieldLabels, formatTime, sensitivityLabels } from '@/utils/labels'
+import { docStatusLabels, docStatusTag, fieldLabels, formatTime, sensitivityLabels } from '@/utils/labels'
 
 const router = useRouter()
 const list = ref<DocItem[]>([])
@@ -17,20 +17,20 @@ const query = reactive<{
   keyword: string
   field?: Field
   sensitivity?: Sensitivity
-  status?: DocStatus
   page: number
   size: number
 }>({ keyword: '', page: 1, size: 20 })
 
-/** 顶部状态页签（待确认已并入这里） */
-const activeTab = ref<'all' | 'pending' | 'confirmed' | 'rejected'>('all')
+/** 顶部状态页签（待确认已并入这里）；状态只由页签决定 */
+type DocTab = 'all' | DocStatus
+const activeTab = ref<DocTab>('all')
 
 async function load() {
   loading.value = true
   try {
     const res = await adminApi.docs({
       ...query,
-      status: activeTab.value === 'all' ? query.status : (activeTab.value as DocStatus),
+      status: activeTab.value === 'all' ? undefined : activeTab.value,
       keyword: query.keyword || undefined,
     })
     list.value = res.list
@@ -40,7 +40,7 @@ async function load() {
   }
 }
 
-function switchTab(name: 'all' | 'pending' | 'confirmed' | 'rejected') {
+function switchTab(name: DocTab) {
   activeTab.value = name
   query.page = 1
   void load()
@@ -60,9 +60,6 @@ function reload() {
 function openDoc(row: DocItem) {
   router.push(`/admin/docs/${row.id}`)
 }
-
-const statusTagType = (s: DocStatus) =>
-  s === 'confirmed' ? 'success' : s === 'pending' ? 'warning' : ('danger' as const)
 
 function nameOf(id?: string | null) {
   if (!id) return '—'
@@ -133,7 +130,7 @@ async function doReject() {
 <template>
   <div class="page-card">
     <div class="filter-bar" style="margin-bottom: 10px">
-      <el-radio-group :model-value="activeTab" @change="(v: string | number | boolean | undefined) => switchTab(String(v) as 'all')">
+      <el-radio-group :model-value="activeTab" @change="(v: string | number | boolean | undefined) => switchTab(String(v) as DocTab)">
         <el-radio-button value="all">全部</el-radio-button>
         <el-radio-button value="pending">待确认</el-radio-button>
         <el-radio-button value="confirmed">已入库</el-radio-button>
@@ -177,7 +174,7 @@ async function doReject() {
       </el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
-          <el-tag size="small" :type="statusTagType(row.status)">{{ docStatusLabels[row.status as DocStatus] }}</el-tag>
+          <el-tag size="small" :type="docStatusTag(row.status)">{{ docStatusLabels[row.status as DocStatus] }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="驳回原因" min-width="160" show-overflow-tooltip>

@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
 import type { Field, QuestionItem, QuestionStatus, User } from '@/types'
-import { fieldLabels, formatTime, questionStatusLabels, roleLabels } from '@/utils/labels'
+import { fieldLabels, formatTime, questionStatusLabels, questionStatusTag, roleLabels } from '@/utils/labels'
 
 const router = useRouter()
 const list = ref<QuestionItem[]>([])
@@ -74,8 +74,6 @@ async function doAssign() {
   }
 }
 
-const statusTag = (s: QuestionStatus) =>
-  s === 'resolved' ? 'success' : s === 'assigned' ? 'warning' : ('info' as const)
 </script>
 
 <template>
@@ -98,7 +96,7 @@ const statusTag = (s: QuestionStatus) =>
       </el-table-column>
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag size="small" :type="statusTag(row.status)">{{ questionStatusLabels[row.status as QuestionStatus] }}</el-tag>
+          <el-tag size="small" :type="questionStatusTag(row.status)">{{ questionStatusLabels[row.status as QuestionStatus] }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="assignee" label="责任人" width="100">
