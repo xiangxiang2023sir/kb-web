@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/endpoints'
@@ -17,6 +17,23 @@ const error = ref('')
 const regVisible = ref(false)
 const regLoading = ref(false)
 const regForm = ref({ employeeNo: '', name: '', password: '', title: '', department: '', note: '' })
+
+// ---- 左侧品牌区轮播 ----
+const slides = [
+  { title: '问设备、问规程，每个回答都有出处', sub: '车间 AGV 知识大脑：先检索规程资料再作答，回答附引用，可点开核对原文。' },
+  { title: '答不了不编造，问题有人接住', sub: '检索不到依据就明说没有，一键转入问题队列，责任人解答后入库，越用越全。' },
+  { title: '经验随手沉淀，审核后入库', sub: '对话里说「记一下」，或把好回答勾选入库；管理员确认后，全厂都能检索到。' },
+]
+const slideIdx = ref(0)
+let slideTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  slideTimer = setInterval(() => {
+    slideIdx.value = (slideIdx.value + 1) % slides.length
+  }, 5000)
+})
+onUnmounted(() => {
+  if (slideTimer) clearInterval(slideTimer)
+})
 
 async function doRegister() {
   if (!regForm.value.employeeNo.trim() || !regForm.value.name.trim() || regForm.value.password.length < 6 || !regForm.value.title.trim()) {
@@ -81,26 +98,69 @@ async function doGuest() {
 
 <template>
   <div class="login-page">
-    <!-- 左侧品牌区：价值主张 + 带出处问答示例（窄屏隐藏） -->
+    <!-- 左侧品牌区：轮播价值主张（窄屏隐藏） -->
     <section class="brand-pane">
       <div class="brand-copy">
-        <h2>问设备、问规程，<br />每个回答都有出处</h2>
-        <p class="brand-sub">
-          车间 AGV 知识大脑：先检索规程资料再作答；答不了不编造，转入问题队列，由责任人解答后入库。
-        </p>
-        <div class="qa-demo" aria-hidden="true">
-          <div class="qa-q">行走电机 F009 报警怎么复位？</div>
-          <div class="qa-a">
-            <p class="qa-a-text">
-              先断主电，等 5 分钟直流母线放电，面板熄灭后长按 STOP/RESET 3 秒复位；若复位后反复报警，检查制动电阻接线。
-            </p>
-            <div class="qa-cite">
-              <span class="qa-idx">[1]</span>
-              <span class="qa-cite-title">变频器 F009 故障处理规程</span>
-              <span class="qa-cite-tag">电气</span>
-            </div>
-            <div class="qa-conf">置信度：依据充分（92%）</div>
+        <Transition name="slide-fade" mode="out-in">
+          <div :key="slideIdx" class="slide">
+            <template v-if="slideIdx === 0">
+              <h2>问设备、问规程，<br />每个回答都有出处</h2>
+              <p class="brand-sub">{{ slides[0].sub }}</p>
+              <div class="qa-demo" aria-hidden="true">
+                <div class="qa-q">行走电机 F009 报警怎么复位？</div>
+                <div class="qa-a">
+                  <p class="qa-a-text">
+                    先断主电，等 5 分钟直流母线放电，面板熄灭后长按 STOP/RESET 3 秒复位；若复位后反复报警，检查制动电阻接线。
+                  </p>
+                  <div class="qa-cite">
+                    <span class="qa-idx">[1]</span>
+                    <span class="qa-cite-title">变频器 F009 故障处理规程</span>
+                    <span class="qa-cite-tag">电气</span>
+                  </div>
+                  <div class="qa-conf">置信度：依据充分（92%）</div>
+                </div>
+              </div>
+            </template>
+
+            <template v-else-if="slideIdx === 1">
+              <h2>答不了不编造，<br />问题有人接住</h2>
+              <p class="brand-sub">{{ slides[1].sub }}</p>
+              <div class="qa-demo" aria-hidden="true">
+                <div class="qa-q">三号充电桩通讯超时怎么处理？</div>
+                <div class="qa-a">
+                  <p class="qa-a-text muted">知识库中未找到相关依据。为避免误导，不做推测性回答。</p>
+                  <div class="qa-queue">已转入问题队列 · 待电气责任人解答</div>
+                </div>
+              </div>
+            </template>
+
+            <template v-else>
+              <h2>经验随手沉淀，<br />审核后入库</h2>
+              <p class="brand-sub">{{ slides[2].sub }}</p>
+              <div class="qa-demo" aria-hidden="true">
+                <div class="qa-q">记一下：F009 复位后仍报警，先查制动电阻</div>
+                <div class="qa-a">
+                  <p class="qa-a-text">已整理成知识草稿，进入「待确认」；管理员审核后全厂可检索。</p>
+                  <div class="qa-cite">
+                    <span class="qa-cite-title">入库预览 · 待确认</span>
+                    <span class="qa-cite-tag">电气</span>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
+        </Transition>
+
+        <div class="dots">
+          <button
+            v-for="(s, i) in slides"
+            :key="i"
+            type="button"
+            class="dot"
+            :class="{ on: i === slideIdx }"
+            :aria-label="`第 ${i + 1} 页`"
+            @click="slideIdx = i"
+          />
         </div>
       </div>
     </section>
@@ -108,15 +168,11 @@ async function doGuest() {
     <!-- 右侧表单区 -->
     <main class="form-pane">
       <div class="login-panel">
-        <header class="brand">
-          <img class="brand-logo" src="/yanfeng-logo.png" width="397" height="117" alt="延锋 Yanfeng" />
-          <h1>工业知识库</h1>
-          <p class="sub">上海延锋 · 工厂内部 AI 问答</p>
-        </header>
+        <img class="brand-logo" src="/yanfeng-logo.png" width="397" height="117" alt="延锋 Yanfeng" />
 
         <el-form class="login-form" size="large" label-position="top" @submit.prevent="doLogin">
           <el-form-item label="工号">
-            <el-input v-model="username" placeholder="如 1080040269" autofocus />
+            <el-input v-model="username" placeholder="请输入工号" autofocus />
           </el-form-item>
           <el-form-item label="密码">
             <el-input v-model="password" type="password" placeholder="请输入密码" show-password />
@@ -126,13 +182,10 @@ async function doGuest() {
           </el-button>
         </el-form>
 
-        <div class="or-line"><span>或</span></div>
-
-        <el-button class="full guest-btn" :loading="loading" @click="doGuest">
-          游客进入（仅公开问答）
-        </el-button>
-
-        <el-button class="full register-btn" text @click="regVisible = true">申请注册账号</el-button>
+        <div class="login-links">
+          <el-button text class="link-btn" :loading="loading" @click="doGuest">游客进入</el-button>
+          <el-button text class="link-btn" @click="regVisible = true">申请注册账号</el-button>
+        </div>
 
         <p v-if="error" class="error" role="alert">{{ error }}</p>
       </div>
@@ -141,7 +194,7 @@ async function doGuest() {
     <el-dialog v-model="regVisible" title="申请注册（管理员批准后可用）" width="min(440px, 92vw)">
       <el-form label-width="80px">
         <el-form-item label="工号">
-          <el-input v-model="regForm.employeeNo" placeholder="登录用，纯数字或字母（如 1080040269）" />
+          <el-input v-model="regForm.employeeNo" placeholder="登录用，纯数字或字母" />
         </el-form-item>
         <el-form-item label="姓名">
           <el-input v-model="regForm.name" placeholder="真实姓名，界面显示用" />
@@ -168,7 +221,7 @@ async function doGuest() {
 </template>
 
 <style scoped>
-/* Glean app.glean.com 式分屏：左米色品牌区，右白底表单；窄屏只留表单 */
+/* Glean app.glean.com 式分屏：左米色轮播品牌区，右白底极简表单；窄屏只留表单 */
 .login-page {
   display: flex;
   min-height: 100%;
@@ -186,11 +239,12 @@ async function doGuest() {
 }
 
 .brand-copy {
+  width: 100%;
   max-width: 470px;
   text-align: center;
 }
 
-.brand-copy h2 {
+.slide h2 {
   margin: 0;
   font-size: 27px;
   line-height: 1.4;
@@ -205,10 +259,11 @@ async function doGuest() {
   color: #73726b;
   font-size: 14px;
   line-height: 1.8;
+  min-height: 50px;
 }
 
 .qa-demo {
-  margin-top: 34px;
+  margin-top: 30px;
   padding: 22px;
   background: #f4e9d2;
   border-radius: 16px;
@@ -216,6 +271,7 @@ async function doGuest() {
   flex-direction: column;
   gap: 12px;
   text-align: left;
+  min-height: 190px;
 }
 
 .qa-q {
@@ -241,6 +297,10 @@ async function doGuest() {
   font-size: 13px;
   line-height: 1.7;
   color: #33322d;
+}
+
+.qa-a-text.muted {
+  color: #73726b;
 }
 
 .qa-cite {
@@ -274,6 +334,52 @@ async function doGuest() {
   color: #3c7a4e;
 }
 
+.qa-queue {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #efece2;
+  font-size: 12px;
+  color: #9a6a1f;
+}
+
+/* 轮播切换动画与圆点 */
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.dots {
+  margin-top: 26px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #d5d0c2;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.dot.on {
+  background: #004898;
+}
+
 /* ===== 右侧表单区 ===== */
 .form-pane {
   flex: 1;
@@ -289,30 +395,11 @@ async function doGuest() {
   width: min(360px, 100%);
 }
 
-.brand {
-  text-align: center;
-  margin-bottom: 28px;
-}
-
 .brand-logo {
   display: block;
-  height: 32px;
+  height: 34px;
   width: auto;
-  margin: 0 auto 18px;
-}
-
-h1 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #1b1b18;
-}
-
-.sub {
-  margin: 6px 0 0;
-  color: #73726b;
-  font-size: 13px;
+  margin: 0 auto 36px;
 }
 
 .login-form :deep(.el-form-item) {
@@ -347,42 +434,19 @@ h1 {
   background: #003a7c;
 }
 
-.or-line {
+.login-links {
+  margin-top: 12px;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin: 18px 0 14px;
-  color: #a3a19a;
-  font-size: 12px;
 }
 
-.or-line::before,
-.or-line::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: #e8e6e0;
-}
-
-.guest-btn {
-  height: 42px;
-  background: #fff;
-  border: 1px solid #d8d6d0;
-  color: #1b1b18;
-}
-
-.guest-btn:hover {
-  background: #f4f3ef;
-  border-color: #c9c7c0;
-  color: #1b1b18;
-}
-
-.register-btn {
-  margin-top: 8px;
+.link-btn {
   color: #73726b;
+  font-size: 13px;
 }
 
-.register-btn:hover {
+.link-btn:hover {
   color: #004898;
 }
 
@@ -407,9 +471,16 @@ h1 {
     padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
   }
 
-  .primary-btn,
-  .guest-btn {
+  .primary-btn {
     min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-fade-enter-active,
+  .slide-fade-leave-active,
+  .dot {
+    transition: none;
   }
 }
 </style>
