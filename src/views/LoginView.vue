@@ -212,9 +212,8 @@ async function doGuest() {
   background: #f7f5ef;
 }
 
+/* 注意：这里不能加 position，否则 .slide-bg 的绝对定位会锚在小盒子上而不是整栏 */
 .brand-copy {
-  position: relative;
-  z-index: 2;
   width: 100%;
   max-width: 470px;
   text-align: center;
@@ -236,10 +235,10 @@ async function doGuest() {
   z-index: 1;
   background: linear-gradient(
     180deg,
-    rgba(247, 245, 239, 0.92) 0%,
-    rgba(247, 245, 239, 0.55) 40%,
-    rgba(247, 245, 239, 0.38) 72%,
-    rgba(247, 245, 239, 0.6) 100%
+    rgba(247, 245, 239, 0.88) 0%,
+    rgba(247, 245, 239, 0.42) 40%,
+    rgba(247, 245, 239, 0.3) 72%,
+    rgba(247, 245, 239, 0.5) 100%
   );
   pointer-events: none;
 }
