@@ -409,10 +409,6 @@ async function doGuest() {
     padding-top: max(24px, env(safe-area-inset-top, 0px));
     padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
   }
-
-  .primary-btn {
-    min-height: 44px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

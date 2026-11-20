@@ -443,8 +443,8 @@ function retry(m: ChatMessage) {
 }
 
 .msg-row.user .msg-bubble {
-  background: #e3ecfd;
-  border: 1px solid #c8d9f7;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-8);
 }
 
 .msg-row.assistant .msg-bubble {
@@ -678,13 +678,11 @@ function retry(m: ChatMessage) {
     animation: none;
   }
 }
-</style>
 
-<style scoped>
 .intake-card {
   background: #fff;
-  border: 1px solid #e4e7ed;
-  border-left: 3px solid #409eff;
+  border: 1px solid var(--kb-border);
+  border-left: 3px solid #004898;
   border-radius: 8px;
   padding: 12px 14px;
   max-width: 720px;
@@ -695,7 +693,7 @@ function retry(m: ChatMessage) {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #909399;
+  color: var(--kb-text-secondary);
   margin-bottom: 8px;
 }
 .intake-actions {
@@ -705,7 +703,7 @@ function retry(m: ChatMessage) {
 }
 .intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .intake-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.intake-warn { font-size: 12px; color: #e6a23c; margin-bottom: 8px; }
+.intake-warn { font-size: 12px; color: var(--el-color-warning); margin-bottom: 8px; }
 .intake-warn .dup { margin-right: 8px; text-decoration: underline; }
 .intake-body {
   max-height: 46vh; overflow: auto; background: #fafafa; border-radius: 6px;
