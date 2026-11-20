@@ -1,14 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import MarkdownIt from 'markdown-it'
 import { adminApi } from '@/api/endpoints'
 import type { DocDetail } from '@/types'
 import { docStatusLabels, fieldLabels, formatTime, sensitivityLabels } from '@/utils/labels'
-
-// html: false —— 转义原始 HTML，防注入（与对话页一致）
-const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
-const renderMd = (text: string) => md.render(text)
+import { renderMd } from '@/utils/markdown'
 
 const route = useRoute()
 const router = useRouter()

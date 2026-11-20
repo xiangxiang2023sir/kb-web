@@ -2,18 +2,14 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import MarkdownIt from 'markdown-it'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, Picture, Promotion, VideoPause } from '@element-plus/icons-vue'
+import { Close, Files, Picture, Promotion, VideoPause } from '@element-plus/icons-vue'
 import { useChatStore, type ChatMessage } from '@/stores/chat'
 import CitationCard from '@/components/CitationCard.vue'
 import ConfidenceBadge from '@/components/ConfidenceBadge.vue'
 import { chatSourceLabels } from '@/utils/labels'
+import { renderMd } from '@/utils/markdown'
 import { intakeApi, projectsApi } from '@/api/endpoints'
-
-// html: false —— 转义原始 HTML，防止注入；需要富 Markdown 渲染时可再扩展
-const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
-const renderMd = (text: string) => md.render(text)
 
 const route = useRoute()
 const router = useRouter()
@@ -685,7 +681,6 @@ function retry(m: ChatMessage) {
 }
 .intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .intake-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.intake-card .intake-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .intake-warn { font-size: 12px; color: #e6a23c; margin-bottom: 8px; }
 .intake-warn .dup { margin-right: 8px; text-decoration: underline; }
 .intake-body {

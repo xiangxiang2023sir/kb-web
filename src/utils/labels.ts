@@ -56,3 +56,17 @@ export function formatTime(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false })
 }
+
+// ---- el-tag 的 type 映射，各列表页共用 ----
+
+export function questionStatusTag(s: QuestionStatus): 'success' | 'warning' | 'info' {
+  return s === 'resolved' ? 'success' : s === 'assigned' ? 'warning' : 'info'
+}
+
+export function docStatusTag(s: DocStatus): 'success' | 'warning' | 'danger' {
+  return s === 'confirmed' ? 'success' : s === 'pending' ? 'warning' : 'danger'
+}
+
+export function healthTypeTag(t: HealthIssueType): 'danger' | 'warning' | 'info' {
+  return t === 'dead_link' ? 'danger' : t === 'orphan_reference' ? 'warning' : 'info'
+}

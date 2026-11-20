@@ -111,13 +111,7 @@ async function doGuest() {
           <el-input v-model="username" placeholder="工号（如 1080040269）" autofocus />
         </el-form-item>
         <el-form-item>
-          <el-input
-            v-model="password"
-            type="password"
-            placeholder="密码"
-            show-password
-            @keyup.enter="doLogin"
-          />
+          <el-input v-model="password" type="password" placeholder="密码" show-password />
         </el-form-item>
         <el-button type="primary" class="full primary-btn" native-type="submit" :loading="loading">
           登录

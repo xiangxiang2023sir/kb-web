@@ -2,8 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { questionApi } from '@/api/endpoints'
-import type { QuestionItem, QuestionStatus } from '@/types'
-import { fieldLabels, questionStatusLabels, formatTime } from '@/utils/labels'
+import type { QuestionItem } from '@/types'
+import { fieldLabels, questionStatusLabels, questionStatusTag, formatTime } from '@/utils/labels'
 
 const list = ref<QuestionItem[]>([])
 const loading = ref(false)
@@ -47,9 +47,6 @@ async function submit() {
 onMounted(() => {
   void load()
 })
-
-const statusTag = (s: QuestionStatus) =>
-  s === 'resolved' ? 'success' : s === 'assigned' ? 'warning' : ('info' as const)
 </script>
 
 <template>
@@ -66,7 +63,7 @@ const statusTag = (s: QuestionStatus) =>
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag size="small" :type="statusTag(row.status)">
+            <el-tag size="small" :type="questionStatusTag(row.status)">
               {{ questionStatusLabels[row.status as keyof typeof questionStatusLabels] }}
             </el-tag>
           </template>

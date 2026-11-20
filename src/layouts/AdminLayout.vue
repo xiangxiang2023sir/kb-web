@@ -9,7 +9,6 @@ import {
   Odometer,
   Document,
   UploadFilled,
-  Finished,
   CircleCheck,
   QuestionFilled,
   User,
