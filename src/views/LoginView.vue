@@ -21,25 +21,19 @@ const regForm = ref({ employeeNo: '', name: '', password: '', title: '', departm
 // ---- 左侧品牌区轮播 ----
 const slides = [
   {
-    titleA: '问设备、问规程，',
-    titleB: '每个回答都有出处',
-    sub: '车间 AGV 知识大脑：先检索规程资料再作答，回答附引用，可点开核对原文。',
-    img: '/login/slide-cite.jpg',
-    alt: '工程师用平板提问，回答附带出处引用',
+    title: '准确性 · 答必有据',
+    sub: '回答先检索规程资料，逐条附出处、可核对原文；没有依据就明说没有，不编造。',
+    img: '/login/slide-accuracy.jpg',
   },
   {
-    titleA: '答不了不编造，',
-    titleB: '问题有人接住',
-    sub: '检索不到依据就明说没有，一键转入问题队列，责任人解答后入库，越用越全。',
-    img: '/login/slide-queue.jpg',
-    alt: '答不了的问题转给责任人解答',
+    title: '保密性 · 分级管控',
+    sub: '公开 / 内部 / 机密 / 绝密四级密级，按角色与项目成员过滤，越级看不到。',
+    img: '/login/slide-security.jpg',
   },
   {
-    titleA: '经验随手沉淀，',
-    titleB: '审核后入库',
-    sub: '对话里说「记一下」，或把好回答勾选入库；管理员确认后，全厂都能检索到。',
-    img: '/login/slide-archive.jpg',
-    alt: '经验整理成知识卡片，审核后入库',
+    title: '可接入性 · 接口开放',
+    sub: '问答接口对外开放：飞书、豆包、Cursor 等多个 Agent 都能接入，一个大脑多处复用。',
+    img: '/login/slide-connect.jpg',
   },
 ]
 const slideIdx = ref(0)
@@ -121,9 +115,10 @@ async function doGuest() {
       <div class="brand-copy">
         <Transition name="slide-fade" mode="out-in">
           <div :key="slideIdx" class="slide">
-            <h2>{{ slides[slideIdx].titleA }}<br />{{ slides[slideIdx].titleB }}</h2>
+            <img class="slide-bg" :src="slides[slideIdx].img" alt="" aria-hidden="true" />
+            <div class="slide-veil" />
+            <h2>{{ slides[slideIdx].title }}</h2>
             <p class="brand-sub">{{ slides[slideIdx].sub }}</p>
-            <img class="slide-img" :src="slides[slideIdx].img" :alt="slides[slideIdx].alt" />
           </div>
         </Transition>
 
@@ -207,6 +202,8 @@ async function doGuest() {
 
 /* ===== 左侧品牌区 ===== */
 .brand-pane {
+  position: relative;
+  overflow: hidden;
   flex: 1;
   display: flex;
   align-items: center;
@@ -216,12 +213,40 @@ async function doGuest() {
 }
 
 .brand-copy {
+  position: relative;
+  z-index: 2;
   width: 100%;
   max-width: 470px;
   text-align: center;
 }
 
+/* 大图铺满左侧当背景，上面盖一层米色柔光保证文字可读 */
+.slide-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.slide-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(247, 245, 239, 0.92) 0%,
+    rgba(247, 245, 239, 0.55) 40%,
+    rgba(247, 245, 239, 0.38) 72%,
+    rgba(247, 245, 239, 0.6) 100%
+  );
+  pointer-events: none;
+}
+
 .slide h2 {
+  position: relative;
+  z-index: 2;
   margin: 0;
   font-size: 27px;
   line-height: 1.4;
@@ -231,24 +256,14 @@ async function doGuest() {
 }
 
 .brand-sub {
+  position: relative;
+  z-index: 2;
   margin: 14px auto 0;
   max-width: 400px;
-  color: #73726b;
+  color: #4f4e48;
   font-size: 14px;
   line-height: 1.8;
   min-height: 50px;
-}
-
-.slide-img {
-  display: block;
-  width: min(520px, 100%);
-  margin: 30px auto 0;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-  border-radius: 18px;
-  /* 边缘羽化：融进米色底 */
-  -webkit-mask-image: radial-gradient(ellipse 94% 94% at 50% 50%, #000 55%, transparent 96%);
-  mask-image: radial-gradient(ellipse 94% 94% at 50% 50%, #000 55%, transparent 96%);
 }
 
 /* 轮播切换动画与圆点 */
@@ -268,6 +283,8 @@ async function doGuest() {
 }
 
 .dots {
+  position: relative;
+  z-index: 2;
   margin-top: 26px;
   display: flex;
   justify-content: center;
