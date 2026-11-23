@@ -150,8 +150,14 @@ async function load() {
     }
     await nextTick()
     render()
-  } catch {
-    ElMessage.error('知识图谱加载失败')
+  } catch (err) {
+    const e = err as Error & { response?: { status?: number; data?: unknown } }
+    const detail = e?.message || String(err)
+    const status = e?.response?.status
+    // 诊断：把完整堆栈挂到 window 上，便于在不改代码的情况下取证
+    ;(window as unknown as Record<string, unknown>).__graphErr = e?.stack || detail
+    console.error('[graph] load/render failed:', status ?? '', detail, err)
+    ElMessage.error(`知识图谱加载失败 [${status ?? '-'}] ${detail}`)
     graph.value = null
   } finally {
     loading.value = false
@@ -236,8 +242,8 @@ function render() {
     chart = echarts.init(chartEl.value)
     chart.on('click', (params) => {
       if (params.dataType !== 'node') return
-      const data = params.data as { id?: string }
-      const node = graph.value?.nodes.find((n) => n.id === data.id)
+      const data = params.data as { _idx?: number }
+      const node = data._idx != null ? graph.value?.nodes[data._idx] : undefined
       selectNode(node ?? null)
     })
   }
@@ -248,13 +254,18 @@ function render() {
     itemStyle: { color: colorOf(f) },
   }))
   const catIndex = new Map(categories.map((c, i) => [c.name, i]))
-  const nodes = graph.value.nodes.map((n) => {
+  const nodes = graph.value.nodes.map((n, i) => {
     const hit = matches(n, q)
     const dim = Boolean(q) && !hit
-    const isSelected = selectedId === n.id
+    const isSelected = selected.value === n
     return {
-      id: n.id,
-      name: shortLabel(n.title, n.slug),
+      // ECharts graph 的 id / name 必须全局唯一：重复时 addNode 会跳过该节点，
+      // 导致 nodes 数组比 data 短，Graph.update 里 nodes[rawIndex] 为 undefined 而崩溃
+      // （"Cannot set properties of undefined (setting 'dataIndex')"）
+      id: `node-${i}`,
+      name: `node-${i}`,
+      _idx: i,
+      displayName: shortLabel(n.title, n.slug),
       value: n.degree,
       symbolSize: Math.min(46, (isSelected ? 18 : 14) + n.degree * 5),
       category: catIndex.get(n.field) ?? 0,
@@ -266,6 +277,7 @@ function render() {
       },
       label: {
         show: !dim && (isSelected || n.degree >= 2 || Boolean(q && hit)),
+        formatter: '{@displayName}',
         color: '#334155',
         fontSize: 11,
         fontWeight: isSelected ? 600 : 400,
@@ -276,19 +288,29 @@ function render() {
       },
     }
   })
-  const links = graph.value.links.map((l) => {
-    const related = selectedId && (l.source === selectedId || l.target === selectedId)
-    return {
-      source: l.source,
-      target: l.target,
-      lineStyle: {
-        color: related ? '#0f172a' : '#94a3b8',
-        width: related ? 2 : 1,
-        opacity: q ? 0.18 : related ? 0.9 : 0.5,
-        curveness: 0.12,
-      },
-    }
+  // 图上节点 id 已改成 node-i，links 必须用索引引用，否则 ECharts 找不到端点
+  const idxBySlug = new Map<string, number>()
+  graph.value.nodes.forEach((n, i) => {
+    if (!idxBySlug.has(n.slug)) idxBySlug.set(n.slug, i)
   })
+  const links = graph.value.links
+    .map((l) => {
+      const s = idxBySlug.get(l.source)
+      const t = idxBySlug.get(l.target)
+      if (s == null || t == null || s === t) return null
+      const related = selectedId && (l.source === selectedId || l.target === selectedId)
+      return {
+        source: s,
+        target: t,
+        lineStyle: {
+          color: related ? '#0f172a' : '#94a3b8',
+          width: related ? 2 : 1,
+          opacity: q ? 0.18 : related ? 0.9 : 0.5,
+          curveness: 0.12,
+        },
+      }
+    })
+    .filter((l): l is NonNullable<typeof l> => l !== null)
   chart.setOption(
     {
       backgroundColor: 'transparent',
