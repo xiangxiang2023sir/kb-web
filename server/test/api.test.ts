@@ -6,7 +6,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { canSee, pageVisible, parseSlug } from '../src/access.js'
-import { diversifyHitsBySource, isMissingGBrainSourceError, missingKbSourceMessage, parseSourcesList } from '../src/gbrain.js'
+import {
+  diversifyHitsBySource,
+  isMissingGBrainSourceError,
+  listGBrain,
+  missingKbSourceMessage,
+  parseSourcesList,
+} from '../src/gbrain.js'
 import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
 import { confidenceOf, type AppConfig } from '../src/config.js'
 import { openDb } from '../src/db.js'
@@ -30,6 +36,40 @@ test('slug 前缀决定能不能看', () => {
   assert.equal(canSee(wang, 'mechanical', 'public'), false)
   assert.equal(canSee(guest, 'electrical', 'public'), true)
   assert.equal(canSee(guest, 'electrical', 'internal'), false)
+})
+
+test('listGBrain 必须带 __all__，裸 list 会 0 页', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-list-'))
+  writeFileSync(
+    join(dir, 'config.yaml'),
+    `search: { fetchLimit: 10, keep: 5, maxPages: 1 }
+confidence: { highMin: 0.03, mediumMin: 0.015 }
+noEvidence: { text: "没有资料", score: 0.2 }
+keywords: { electrical: [], mechanical: [], dispatch: [] }
+sensitivityKeywords: { top_secret: [], confidential: [], public: [] }
+defaults: { field: electrical, sensitivity: internal }
+llm: { baseUrl: "http://127.0.0.1:9", model: test, temperature: 0, maxTokens: 20 }
+vision: { baseUrl: "", model: "", maxImages: 4 }
+gbrain: { command: node, argsPrefix: [${JSON.stringify(fakeGbrain)}], timeoutMs: 5000 }
+health: { reportIslandedPages: false }
+limits: { imageBytes: 1000000, docBytes: 1000000, classifyChars: 1000 }
+auth: { cookieName: kb_sid, ttlDays: 1 }
+agent: { publicOnlyOnly: true }
+`,
+  )
+  process.env.KB_CONFIG = join(dir, 'config.yaml')
+  process.env.GBRAIN_BIN = 'node'
+  const { loadConfig } = await import('../src/config.js')
+  const config = loadConfig()
+  try {
+    // fake：不带 --source-id → No pages；listGBrain 经 Full 带 __all__ 应有页
+    const pages = await listGBrain(config)
+    assert.ok(pages.length >= 2, `应列出跨源页面，实际 ${pages.length}`)
+    assert.ok(pages.some((p) => p.slug === 'electrical/internal/inverter-f009'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    delete process.env.KB_CONFIG
+  }
 })
 
 test('健康检查：空正文不报缺少 frontmatter；有正文才验', async () => {
