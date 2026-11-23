@@ -411,6 +411,79 @@ const routes: Route[] = [
   },
   {
     method: 'GET',
+    pattern: '/admin/kb/graph',
+    role: 'admin',
+    handler: ({ res }) => {
+      const nodes = [
+        {
+          id: 'electrical/internal/inverter-f009',
+          slug: 'electrical/internal/inverter-f009',
+          title: '变频器过载故障处理规程',
+          field: 'electrical',
+          sensitivity: 'internal',
+          sourceId: 'default',
+          degree: 2,
+          orphan: false,
+        },
+        {
+          id: 'electrical/public/safety-basics',
+          slug: 'electrical/public/safety-basics',
+          title: '电气安全基础',
+          field: 'electrical',
+          sensitivity: 'public',
+          sourceId: 'default',
+          degree: 2,
+          orphan: false,
+        },
+        {
+          id: 'dispatch/internal/route-plan',
+          slug: 'dispatch/internal/route-plan',
+          title: '调度路径规划',
+          field: 'dispatch',
+          sensitivity: 'internal',
+          sourceId: 'default',
+          degree: 2,
+          orphan: false,
+        },
+        {
+          id: 'mechanical/internal/orphan-note',
+          slug: 'mechanical/internal/orphan-note',
+          title: '孤立备注',
+          field: 'mechanical',
+          sensitivity: 'internal',
+          sourceId: 'default',
+          degree: 0,
+          orphan: true,
+        },
+        {
+          id: 'mechanical/public/lubrication',
+          slug: 'mechanical/public/lubrication',
+          title: '润滑保养要点',
+          field: 'mechanical',
+          sensitivity: 'public',
+          sourceId: 'default',
+          degree: 0,
+          orphan: true,
+        },
+      ]
+      sendJson(res, 200, {
+        nodes,
+        links: [
+          { source: 'electrical/internal/inverter-f009', target: 'electrical/public/safety-basics' },
+          { source: 'electrical/public/safety-basics', target: 'dispatch/internal/route-plan' },
+          { source: 'dispatch/internal/route-plan', target: 'electrical/internal/inverter-f009' },
+        ],
+        stats: {
+          nodeCount: nodes.length,
+          linkCount: 3,
+          orphanCount: nodes.filter((n) => n.orphan).length,
+          fields: ['dispatch', 'electrical', 'mechanical'],
+        },
+      })
+    },
+  },
+  {
+    method: 'GET',
     pattern: '/admin/docs',
     role: 'admin',
     handler: ({ query, res }) => {

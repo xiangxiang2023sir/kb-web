@@ -11,6 +11,7 @@ import {
   isMissingGBrainSourceError,
   listGBrain,
   missingKbSourceMessage,
+  parseGraphLinks,
   parseSourcesList,
 } from '../src/gbrain.js'
 import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
@@ -748,9 +749,78 @@ test('GBrain sources list 两种 JSON 都能读', () => {
   assert.deepEqual(parseSourcesList(null), [])
 })
 
+test('gbrain graph --json 多种边字段都能解析', () => {
+  assert.deepEqual(parseGraphLinks({ edges: [{ source: 'a', target: 'b' }] }), [{ source: 'a', target: 'b' }])
+  assert.deepEqual(parseGraphLinks({ links: [{ from: 'a', to: 'b' }] }), [{ source: 'a', target: 'b' }])
+  assert.deepEqual(parseGraphLinks([{ source_slug: 'x', target_slug: 'y' }]), [{ source: 'x', target: 'y' }])
+  assert.deepEqual(parseGraphLinks(null), [])
+})
+
 test('缺 source 时给人看的中文说明', () => {
   assert.match(missingKbSourceMessage('火焰处理', '240242'), /还没有知识库分区/)
   assert.equal(isMissingGBrainSourceError('gbrain capture: Source "240242" not found or is archived.'), true)
+})
+
+test('管理员知识图谱：节点/边/孤立页', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-graph-'))
+  writeFileSync(
+    join(dir, 'config.yaml'),
+    `search: { fetchLimit: 10, keep: 5, maxPages: 1 }
+confidence: { highMin: 0.03, mediumMin: 0.015 }
+noEvidence: { text: "没有资料", score: 0.2 }
+keywords: { electrical: [变频], mechanical: [], dispatch: [] }
+sensitivityKeywords: { top_secret: [], confidential: [], public: [] }
+defaults: { field: electrical, sensitivity: internal }
+llm: { baseUrl: "http://127.0.0.1:9", model: test, temperature: 0, maxTokens: 20 }
+vision: { baseUrl: "", model: "", maxImages: 4 }
+gbrain: { command: node, argsPrefix: [${JSON.stringify(fakeGbrain)}], timeoutMs: 5000 }
+health: { reportIslandedPages: false }
+limits: { imageBytes: 1000000, docBytes: 1000000, classifyChars: 1000 }
+auth: { cookieName: kb_sid, ttlDays: 1 }
+agent: { publicOnlyOnly: true }
+`,
+  )
+  process.env.KB_CONFIG = join(dir, 'config.yaml')
+  process.env.DEEPSEEK_API_KEY = ''
+  process.env.GBRAIN_BIN = 'node'
+  const server = await start({ dataDir: dir, port: 0, host: '127.0.0.1' })
+  const base = `http://127.0.0.1:${server.port}`
+  try {
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'owner', password: 'admin123' }),
+    })
+    const cookie = login.headers.getSetCookie()[0].split(';')[0]
+    const res = await fetch(`${base}/api/admin/kb/graph`, { headers: { cookie } })
+    assert.equal(res.status, 200)
+    const body = (await res.json()) as {
+      nodes: { slug: string; orphan: boolean; degree: number }[]
+      links: { source: string; target: string }[]
+      stats: { nodeCount: number; linkCount: number; orphanCount: number }
+    }
+    assert.equal(body.stats.nodeCount, 5)
+    assert.equal(body.stats.linkCount, 3)
+    assert.equal(body.stats.orphanCount, 2)
+    assert.ok(body.nodes.some((n) => n.slug === 'mechanical/internal/orphan-note' && n.orphan))
+    assert.ok(body.nodes.some((n) => n.slug === 'electrical/top_secret/secret-page' && n.orphan))
+    assert.ok(body.nodes.find((n) => n.slug === 'electrical/public/safety-basics')!.degree >= 2)
+
+    const adminLogin = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123' }),
+    })
+    const adminCookie = adminLogin.headers.getSetCookie()[0].split(';')[0]
+    const adminRes = await fetch(`${base}/api/admin/kb/graph`, { headers: { cookie: adminCookie } })
+    const adminBody = (await adminRes.json()) as { stats: { nodeCount: number }; nodes: { slug: string }[] }
+    assert.equal(adminBody.stats.nodeCount, 4)
+    assert.ok(!adminBody.nodes.some((n) => n.slug.includes('top_secret')))
+  } finally {
+    await server.close()
+    rmSync(dir, { recursive: true, force: true })
+    delete process.env.KB_CONFIG
+  }
 })
 
 test('项目没有 GBrain source 时确认入库给明确报错；建好分区后能入库', async () => {

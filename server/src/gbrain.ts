@@ -338,6 +338,42 @@ export async function orphanGBrain(config: AppConfig): Promise<{ slug: string; t
   return (parsed?.orphans ?? []).map((o) => ({ slug: String(o.slug ?? ''), title: String(o.title ?? o.slug ?? '') })).filter((o) => o.slug)
 }
 
+export interface GBrainLink {
+  source: string
+  target: string
+}
+
+/** gbrain graph --json 的宽容解析：各版本字段名不一致（edges/links，source/from，target/to）。 */
+export function parseGraphLinks(parsed: unknown): GBrainLink[] {
+  const container = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object'
+      ? ((parsed as Record<string, unknown>).edges ??
+        (parsed as Record<string, unknown>).links ??
+        (parsed as Record<string, unknown>).relations ??
+        [])
+      : []
+  const rows = Array.isArray(container) ? container : []
+  const out: GBrainLink[] = []
+  for (const row of rows) {
+    const r = row as Record<string, unknown>
+    const source = String(r.source ?? r.from ?? r.source_slug ?? '').trim()
+    const target = String(r.target ?? r.to ?? r.target_slug ?? '').trim()
+    if (source && target) out.push({ source, target })
+  }
+  return out
+}
+
+/** gbrain graph --json → 页面互链（知识图谱的边） */
+export async function graphGBrain(config: AppConfig, sourceId?: string): Promise<GBrainLink[]> {
+  const stdout = await runGBrain(
+    config,
+    ['graph', '--json', ...(sourceId ? ['--source-id', sourceId] : [])],
+    Math.max(config.gbrain.timeoutMs, 60000),
+  )
+  return parseGraphLinks(parseJson(stdout))
+}
+
 export interface GBrainPage {
   slug: string
   title: string

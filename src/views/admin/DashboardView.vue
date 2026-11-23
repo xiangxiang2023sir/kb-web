@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { defineAsyncComponent, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { adminApi } from '@/api/endpoints'
 import type { AdminOverview } from '@/types'
+
+const KnowledgeGraphCard = defineAsyncComponent(() => import('@/components/KnowledgeGraphCard.vue'))
 
 const overview = ref<AdminOverview | null>(null)
 
@@ -17,24 +19,27 @@ onMounted(async () => {
 
 <template>
   <el-skeleton v-if="!overview" :rows="3" animated />
-  <div v-else class="stat-grid">
-    <el-card shadow="never" class="stat" @click="$router.push('/admin/docs/review')">
-      <div class="num" :class="{ warn: overview.pendingDocs > 0 }">{{ overview.pendingDocs }}</div>
-      <div class="label">待确认文档</div>
-    </el-card>
-    <el-card shadow="never" class="stat" @click="$router.push('/admin/questions')">
-      <div class="num" :class="{ warn: overview.unassignedQuestions > 0 }">{{ overview.unassignedQuestions }}</div>
-      <div class="label">未分配问题</div>
-    </el-card>
-    <el-card shadow="never" class="stat" @click="$router.push('/admin/health')">
-      <div class="num" :class="{ danger: overview.failedChecks > 0 }">{{ overview.failedChecks }}</div>
-      <div class="label">健康检查未通过</div>
-    </el-card>
-    <el-card shadow="never" class="stat">
-      <div class="num">{{ overview.todayQuestions }}</div>
-      <div class="label">今日提问</div>
-    </el-card>
-  </div>
+  <template v-else>
+    <div class="stat-grid">
+      <el-card shadow="never" class="stat" @click="$router.push('/admin/docs/review')">
+        <div class="num" :class="{ warn: overview.pendingDocs > 0 }">{{ overview.pendingDocs }}</div>
+        <div class="label">待确认文档</div>
+      </el-card>
+      <el-card shadow="never" class="stat" @click="$router.push('/admin/questions')">
+        <div class="num" :class="{ warn: overview.unassignedQuestions > 0 }">{{ overview.unassignedQuestions }}</div>
+        <div class="label">未分配问题</div>
+      </el-card>
+      <el-card shadow="never" class="stat" @click="$router.push('/admin/health')">
+        <div class="num" :class="{ danger: overview.failedChecks > 0 }">{{ overview.failedChecks }}</div>
+        <div class="label">健康检查未通过</div>
+      </el-card>
+      <el-card shadow="never" class="stat">
+        <div class="num">{{ overview.todayQuestions }}</div>
+        <div class="label">今日提问</div>
+      </el-card>
+    </div>
+    <KnowledgeGraphCard />
+  </template>
 </template>
 
 <style scoped>

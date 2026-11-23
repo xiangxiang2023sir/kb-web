@@ -16,6 +16,7 @@ import {
   ensureGBrainSource,
   gbrainSourceExists,
   gbrainStats,
+  graphGBrain,
   isMissingGBrainSourceError,
   listGBrain,
   listGBrainFull,
@@ -1528,6 +1529,60 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
           const parts = pg.slug.split('/')
           return { ...pg, field: parts[0] ?? '', sensitivity: parts[1] ?? '' }
         }),
+      })
+    }),
+  )
+
+  // 知识图谱：节点来自 list，边来自 gbrain graph --json（LINKS）
+  app.get(
+    '/api/admin/kb/graph',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const me = userOf(res)!
+      const sourceId = String(req.query.sourceId ?? req.query.source ?? '').trim() || undefined
+      const [pagesAll, linksRaw] = await Promise.all([
+        listGBrainFull(config, sourceId),
+        graphGBrain(config, sourceId).catch(() => []),
+      ])
+      // 与 /kb/pages 一致：管理员总览，绝密仅主人可见
+      const pages = pagesAll.filter((pg) => {
+        const parts = pg.slug.split('/')
+        return parts[1] !== 'top_secret' || me.role === 'owner'
+      })
+      const allowed = new Set(pages.map((pg) => pg.slug))
+      const degree = new Map<string, number>()
+      for (const slug of allowed) degree.set(slug, 0)
+      const links: { source: string; target: string }[] = []
+      for (const edge of linksRaw) {
+        if (!allowed.has(edge.source) || !allowed.has(edge.target)) continue
+        if (edge.source === edge.target) continue
+        links.push(edge)
+        degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1)
+        degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1)
+      }
+      const nodes = pages.map((pg) => {
+        const parts = pg.slug.split('/')
+        const deg = degree.get(pg.slug) ?? 0
+        return {
+          id: pg.slug,
+          slug: pg.slug,
+          title: pg.title || pg.slug,
+          field: parts[0] ?? 'unknown',
+          sensitivity: parts[1] ?? 'unknown',
+          sourceId: pg.sourceId,
+          degree: deg,
+          orphan: deg === 0,
+        }
+      })
+      res.json({
+        nodes,
+        links,
+        stats: {
+          nodeCount: nodes.length,
+          linkCount: links.length,
+          orphanCount: nodes.filter((n) => n.orphan).length,
+          fields: [...new Set(nodes.map((n) => n.field))].sort(),
+        },
       })
     }),
   )

@@ -259,6 +259,28 @@ export interface KbStatus {
   recent: { slug: string; title: string; updatedAt: string | null }[]
 }
 
+export interface KbGraphNode {
+  id: string
+  slug: string
+  title: string
+  field: string
+  sensitivity: string
+  sourceId: string
+  degree: number
+  orphan: boolean
+}
+
+export interface KbGraph {
+  nodes: KbGraphNode[]
+  links: { source: string; target: string }[]
+  stats: {
+    nodeCount: number
+    linkCount: number
+    orphanCount: number
+    fields: string[]
+  }
+}
+
 /** 资料库（以 GBrain 为准） */
 export const kbApi = {
   status: () => http.get<KbStatus>('/admin/kb/status').then((r) => r.data),
@@ -270,6 +292,8 @@ export const kbApi = {
     http
       .get<{ slug: string; content: string }>('/admin/kb/page', { params: { slug, sourceId } })
       .then((r) => r.data),
+  graph: (sourceId?: string) =>
+    http.get<KbGraph>('/admin/kb/graph', { params: sourceId ? { sourceId } : undefined }).then((r) => r.data),
   remove: (slug: string, sourceId?: string) =>
     http
       .delete<{ ok: boolean; slug: string; cleanedDocs: number }>('/admin/kb/page', { params: { slug, sourceId } })

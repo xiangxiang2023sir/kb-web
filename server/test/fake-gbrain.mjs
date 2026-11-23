@@ -110,12 +110,61 @@ if (cmd === 'list') {
       updated_at: '2026-01-02T00:00:00Z',
       source_id: 'default',
     },
+    {
+      slug: 'dispatch/internal/route-plan',
+      title: '调度路径规划',
+      type: 'page',
+      updated_at: '2026-01-03T00:00:00Z',
+      source_id: 'default',
+    },
+    {
+      slug: 'mechanical/internal/orphan-note',
+      title: '孤立备注',
+      type: 'page',
+      updated_at: '2026-01-04T00:00:00Z',
+      source_id: 'default',
+    },
+    {
+      slug: 'electrical/top_secret/secret-page',
+      title: '绝密页',
+      type: 'page',
+      updated_at: '2026-01-05T00:00:00Z',
+      source_id: 'default',
+    },
   ]
   if (args.includes('--json')) {
     console.log(JSON.stringify(pages))
   } else {
     console.log(pages.map((p) => `${p.slug}\t${p.type}\t${p.updated_at.slice(0, 10)}\t${p.title}`).join('\n'))
   }
+  process.exit(0)
+}
+
+if (cmd === 'graph') {
+  console.log(
+    JSON.stringify({
+      edges: [
+        { source: 'electrical/internal/inverter-f009', target: 'electrical/public/safety-basics' },
+        { from: 'electrical/public/safety-basics', to: 'dispatch/internal/route-plan' },
+        { source_slug: 'dispatch/internal/route-plan', target_slug: 'electrical/internal/inverter-f009' },
+      ],
+    }),
+  )
+  process.exit(0)
+}
+
+if (cmd === 'stats') {
+  console.log(
+    JSON.stringify({
+      page_count: 5,
+      chunk_count: 10,
+      embedded_count: 8,
+      link_count: 3,
+      tag_count: 0,
+      timeline_entry_count: 0,
+      pages_by_type: { page: 5 },
+    }),
+  )
   process.exit(0)
 }
 
