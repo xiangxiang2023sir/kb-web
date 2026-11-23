@@ -87,5 +87,37 @@ if (cmd === 'orphans') {
   process.exit(0)
 }
 
+if (cmd === 'list') {
+  // 纯文本 list：slug\ttype\tdate\ttitle（listGBrain 用）；带 --json 则给数组
+  if (args.includes('--json')) {
+    console.log(
+      JSON.stringify([
+        {
+          slug: 'electrical/internal/inverter-f009',
+          title: '变频器过载故障处理规程',
+          type: 'page',
+          updated_at: '2026-01-01T00:00:00Z',
+          source_id: 'default',
+        },
+        {
+          slug: 'electrical/public/safety-basics',
+          title: '电气安全基础',
+          type: 'page',
+          updated_at: '2026-01-02T00:00:00Z',
+          source_id: 'default',
+        },
+      ]),
+    )
+  } else {
+    console.log(
+      [
+        'electrical/internal/inverter-f009\tpage\t2026-01-01\t变频器过载故障处理规程',
+        'electrical/public/safety-basics\tpage\t2026-01-02\t电气安全基础',
+      ].join('\n'),
+    )
+  }
+  process.exit(0)
+}
+
 console.error('unknown', args.join(' '))
 process.exit(1)

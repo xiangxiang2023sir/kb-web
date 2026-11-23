@@ -10,6 +10,7 @@ import { diversifyHitsBySource, isMissingGBrainSourceError, missingKbSourceMessa
 import { archiveToPending, isoWeekKey, isoWeekRange, writeWeeklyArchives } from '../src/archive.js'
 import { confidenceOf, type AppConfig } from '../src/config.js'
 import { openDb } from '../src/db.js'
+import { runHealth } from '../src/health.js'
 import { coverageTermsOf, decodeUploadName, extractText, isSmallTalk, searchQueryOf, searchTermsOf } from '../src/text.js'
 import { bodyReadPlan } from '../src/ask.js'
 import { start } from '../src/app.js'
@@ -29,6 +30,94 @@ test('slug 前缀决定能不能看', () => {
   assert.equal(canSee(wang, 'mechanical', 'public'), false)
   assert.equal(canSee(guest, 'electrical', 'public'), true)
   assert.equal(canSee(guest, 'electrical', 'internal'), false)
+})
+
+test('健康检查：空正文不报缺少 frontmatter；有正文才验', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-health-'))
+  writeFileSync(
+    join(dir, 'config.yaml'),
+    `search: { fetchLimit: 10, keep: 5, maxPages: 1 }
+confidence: { highMin: 0.03, mediumMin: 0.015 }
+noEvidence: { text: "没有资料", score: 0.2 }
+keywords: { electrical: [变频], mechanical: [], dispatch: [] }
+sensitivityKeywords: { top_secret: [], confidential: [], public: [] }
+defaults: { field: electrical, sensitivity: internal }
+llm: { baseUrl: "http://127.0.0.1:9", model: test, temperature: 0, maxTokens: 20 }
+vision: { baseUrl: "", model: "", maxImages: 4 }
+gbrain: { command: node, argsPrefix: [${JSON.stringify(fakeGbrain)}], timeoutMs: 5000 }
+health: { reportIslandedPages: false }
+limits: { imageBytes: 1000000, docBytes: 1000000, classifyChars: 1000 }
+auth: { cookieName: kb_sid, ttlDays: 1 }
+agent: { publicOnlyOnly: true }
+`,
+  )
+  const { loadConfig } = await import('../src/config.js')
+  process.env.KB_CONFIG = join(dir, 'config.yaml')
+  process.env.GBRAIN_BIN = 'node'
+  const config = loadConfig()
+  const db = openDb(join(dir, 't.sqlite'))
+  const now = new Date().toISOString()
+  try {
+    // sync 风格：空正文 + 合法 slug（在 fake list 里）
+    db.insertDoc({
+      id: 'd-sync',
+      title: '变频器过载故障处理规程',
+      field: 'electrical',
+      sensitivity: 'internal',
+      status: 'confirmed',
+      suggestedField: 'electrical',
+      suggestedSensitivity: 'internal',
+      content: '',
+      updatedAt: now,
+      slug: 'electrical/internal/inverter-f009',
+      sourcePath: 'electrical/internal/inverter-f009',
+    })
+    // 台账有、GBrain 无
+    db.insertDoc({
+      id: 'd-ghost',
+      title: '幽灵页',
+      field: 'electrical',
+      sensitivity: 'internal',
+      status: 'confirmed',
+      suggestedField: 'electrical',
+      suggestedSensitivity: 'internal',
+      content: '',
+      updatedAt: now,
+      slug: 'electrical/internal/not-in-gbrain',
+    })
+    // confirm 风格：有 frontmatter 正文
+    db.insertDoc({
+      id: 'd-body',
+      title: '有正文',
+      field: 'electrical',
+      sensitivity: 'public',
+      status: 'pending',
+      suggestedField: 'electrical',
+      suggestedSensitivity: 'public',
+      content: 'raw',
+      updatedAt: now,
+    })
+    db.confirmDoc(
+      'd-body',
+      'electrical',
+      'public',
+      'electrical/public/safety-basics',
+      '---\ntitle: 电气安全基础\n---\n\n正文 [[electrical/internal/missing-link]]\n',
+      now,
+    )
+
+    const { issues, summary } = await runHealth(db, config)
+    assert.equal(summary.bodyInGbrainOnly, 2)
+    assert.equal(summary.bodyInSqlite, 1)
+    assert.ok(!issues.some((i) => i.detail === '正文缺少 frontmatter'), '空正文不应报缺少 frontmatter')
+    assert.ok(issues.some((i) => i.docId === 'd-ghost' && /GBrain 中找不到/.test(i.detail)))
+    assert.ok(issues.some((i) => i.type === 'dead_link' && /missing-link/.test(i.detail)))
+    assert.ok(summary.missingInLedger >= 0)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+    delete process.env.KB_CONFIG
+  }
 })
 
 test('打招呼不走知识库检索', () => {
