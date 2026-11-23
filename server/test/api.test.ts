@@ -823,6 +823,60 @@ agent: { publicOnlyOnly: true }
   }
 })
 
+test('知识图谱：库无互链时短路，孤立来自 orphans 而非全员度=0', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kb-graph-nolink-'))
+  writeFileSync(
+    join(dir, 'config.yaml'),
+    `search: { fetchLimit: 10, keep: 5, maxPages: 1 }
+confidence: { highMin: 0.03, mediumMin: 0.015 }
+noEvidence: { text: "没有资料", score: 0.2 }
+keywords: { electrical: [变频], mechanical: [], dispatch: [] }
+sensitivityKeywords: { top_secret: [], confidential: [], public: [] }
+defaults: { field: electrical, sensitivity: internal }
+llm: { baseUrl: "http://127.0.0.1:9", model: test, temperature: 0, maxTokens: 20 }
+vision: { baseUrl: "", model: "", maxImages: 4 }
+gbrain: { command: node, argsPrefix: [${JSON.stringify(fakeGbrain)}], timeoutMs: 5000 }
+health: { reportIslandedPages: false }
+limits: { imageBytes: 1000000, docBytes: 1000000, classifyChars: 1000 }
+auth: { cookieName: kb_sid, ttlDays: 1 }
+agent: { publicOnlyOnly: true }
+`,
+  )
+  process.env.KB_CONFIG = join(dir, 'config.yaml')
+  process.env.DEEPSEEK_API_KEY = ''
+  process.env.GBRAIN_BIN = 'node'
+  process.env.FAKE_GBRAIN_LINK_COUNT = '0'
+  const server = await start({ dataDir: dir, port: 0, host: '127.0.0.1' })
+  const base = `http://127.0.0.1:${server.port}`
+  try {
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'owner', password: 'admin123' }),
+    })
+    const cookie = login.headers.getSetCookie()[0].split(';')[0]
+    const res = await fetch(`${base}/api/admin/kb/graph`, { headers: { cookie } })
+    assert.equal(res.status, 200)
+    const body = (await res.json()) as {
+      nodes: { slug: string; orphan: boolean; degree: number }[]
+      links: { source: string; target: string }[]
+      stats: { nodeCount: number; linkCount: number; orphanCount: number }
+    }
+    assert.equal(body.stats.nodeCount, 5)
+    assert.equal(body.stats.linkCount, 0)
+    assert.equal(body.links.length, 0)
+    // 不能把 5 页全标孤立；只认 gbrain orphans
+    assert.equal(body.stats.orphanCount, 2)
+    assert.ok(body.nodes.some((n) => n.slug === 'mechanical/internal/orphan-note' && n.orphan))
+    assert.ok(body.nodes.some((n) => n.slug === 'electrical/internal/inverter-f009' && !n.orphan))
+  } finally {
+    await server.close()
+    rmSync(dir, { recursive: true, force: true })
+    delete process.env.KB_CONFIG
+    delete process.env.FAKE_GBRAIN_LINK_COUNT
+  }
+})
+
 test('项目没有 GBrain source 时确认入库给明确报错；建好分区后能入库', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kb-src-'))
   const stateFile = join(dir, 'gbrain-sources.json')

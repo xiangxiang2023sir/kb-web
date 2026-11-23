@@ -83,7 +83,14 @@ if (cmd === 'capture') {
 }
 
 if (cmd === 'orphans') {
-  console.log(JSON.stringify({ orphans: [] }))
+  console.log(
+    JSON.stringify({
+      orphans: [
+        { slug: 'mechanical/internal/orphan-note', title: '孤立备注' },
+        { slug: 'electrical/top_secret/secret-page', title: '绝密页' },
+      ],
+    }),
+  )
   process.exit(0)
 }
 
@@ -141,25 +148,34 @@ if (cmd === 'list') {
 }
 
 if (cmd === 'graph') {
-  console.log(
-    JSON.stringify({
-      edges: [
-        { source: 'electrical/internal/inverter-f009', target: 'electrical/public/safety-basics' },
-        { from: 'electrical/public/safety-basics', to: 'dispatch/internal/route-plan' },
-        { source_slug: 'dispatch/internal/route-plan', target_slug: 'electrical/internal/inverter-f009' },
-      ],
-    }),
-  )
+  // 真实 CLI：gbrain graph <slug> — slug 必填
+  const slug = args[1]
+  if (!slug || slug.startsWith('--')) {
+    console.error("Error [invalid_params]: Missing required parameter 'slug' for 'gbrain graph'")
+    process.exit(1)
+  }
+  const allEdges = [
+    { source: 'electrical/internal/inverter-f009', target: 'electrical/public/safety-basics' },
+    { from: 'electrical/public/safety-basics', to: 'dispatch/internal/route-plan' },
+    { source_slug: 'dispatch/internal/route-plan', target_slug: 'electrical/internal/inverter-f009' },
+  ]
+  const edges = allEdges.filter((e) => {
+    const s = e.source ?? e.from ?? e.source_slug
+    const t = e.target ?? e.to ?? e.target_slug
+    return s === slug || t === slug
+  })
+  console.log(JSON.stringify({ edges }))
   process.exit(0)
 }
 
 if (cmd === 'stats') {
+  const linkCount = process.env.FAKE_GBRAIN_LINK_COUNT != null ? Number(process.env.FAKE_GBRAIN_LINK_COUNT) : 3
   console.log(
     JSON.stringify({
       page_count: 5,
       chunk_count: 10,
       embedded_count: 8,
-      link_count: 3,
+      link_count: Number.isFinite(linkCount) ? linkCount : 3,
       tag_count: 0,
       timeline_entry_count: 0,
       pages_by_type: { page: 5 },

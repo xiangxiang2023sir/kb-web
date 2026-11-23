@@ -364,14 +364,44 @@ export function parseGraphLinks(parsed: unknown): GBrainLink[] {
   return out
 }
 
-/** gbrain graph --json → 页面互链（知识图谱的边） */
-export async function graphGBrain(config: AppConfig, sourceId?: string): Promise<GBrainLink[]> {
-  const stdout = await runGBrain(
-    config,
-    ['graph', '--json', ...(sourceId ? ['--source-id', sourceId] : [])],
-    Math.max(config.gbrain.timeoutMs, 60000),
-  )
-  return parseGraphLinks(parseJson(stdout))
+/**
+ * 收集页面互链。
+ * gbrain graph 必须带 <slug>（从一页出发遍历），没有全图接口。
+ * 策略：stats.link_count === 0 直接返回 []（工厂库当前常态）；
+ * 否则对每个 slug 调 `graph <slug> --json`，合并去重（限并发，单页失败忽略）。
+ */
+export async function graphGBrain(
+  config: AppConfig,
+  slugs: string[],
+  opts?: { sourceId?: string; concurrency?: number },
+): Promise<GBrainLink[]> {
+  if (!slugs.length) return []
+  const stats = await gbrainStats(config).catch(() => null)
+  if (stats && stats.linkCount <= 0) return []
+
+  const concurrency = Math.max(1, Math.min(opts?.concurrency ?? 8, 16))
+  const timeout = Math.max(config.gbrain.timeoutMs, 30000)
+  const sourceArgs = opts?.sourceId ? (['--source-id', opts.sourceId] as string[]) : []
+  const seen = new Map<string, GBrainLink>()
+  let cursor = 0
+
+  async function worker() {
+    while (cursor < slugs.length) {
+      const slug = slugs[cursor++]!
+      try {
+        const stdout = await runGBrain(config, ['graph', slug, '--json', ...sourceArgs], timeout)
+        for (const edge of parseGraphLinks(parseJson(stdout))) {
+          if (!edge.source || !edge.target || edge.source === edge.target) continue
+          seen.set(`${edge.source}\0${edge.target}`, edge)
+        }
+      } catch {
+        // 单页失败不影响其它页
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, slugs.length) }, () => worker()))
+  return [...seen.values()]
 }
 
 export interface GBrainPage {

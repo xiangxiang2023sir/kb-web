@@ -94,6 +94,14 @@ function sensitivityLabelOf(s: string) {
   return sensitivityLabels[s as Sensitivity] ?? s
 }
 
+function statusLabel(n: KbGraphNode) {
+  if (n.orphan) return '孤立页'
+  if ((graph.value?.stats.linkCount ?? 0) === 0) return '未建互链'
+  return '已互链'
+}
+
+const noLinks = computed(() => (graph.value?.stats.linkCount ?? 0) === 0)
+
 async function loadProjects() {
   projects.value = await projectsApi.list().catch(() => [])
 }
@@ -281,10 +289,16 @@ onBeforeUnmount(() => {
         <i class="dot" :style="{ background: item.color }" />
         {{ item.label }}
       </span>
-      <span class="legend-item">
+      <span v-if="!noLinks || orphans.length" class="legend-item">
         <i class="dot orphan" />
         孤立（红框）
       </span>
+    </div>
+
+    <div v-if="graph && noLinks && graph.nodes.length" class="kg-banner">
+      库中暂无页面互链（wikilink）。可浏览节点与孤立清单；正文写入
+      <code>[[链接]]</code>
+      并由 GBrain 解析后才会出现连线。
     </div>
 
     <el-skeleton v-if="loading && !graph" :rows="6" animated />
@@ -302,7 +316,7 @@ onBeforeUnmount(() => {
           <div><dt>领域</dt><dd>{{ fieldLabelOf(selected.field) }}</dd></div>
           <div><dt>密级</dt><dd>{{ sensitivityLabelOf(selected.sensitivity) }}</dd></div>
           <div><dt>互链度</dt><dd>{{ selected.degree }}</dd></div>
-          <div><dt>状态</dt><dd>{{ selected.orphan ? '孤立页' : '已互链' }}</dd></div>
+          <div><dt>状态</dt><dd>{{ statusLabel(selected) }}</dd></div>
         </dl>
         <div v-if="neighbors.length" class="neighbor-block">
           <div class="neighbor-title">相邻页</div>
@@ -331,7 +345,9 @@ onBeforeUnmount(() => {
           <div class="preview-title">孤立页（{{ orphans.length }}）</div>
           <button type="button" class="panel-close" aria-label="关闭" @click="showOrphans = false">×</button>
         </div>
-        <p class="panel-tip">没有 LINKS 互链的页面，可点选查看</p>
+        <p class="panel-tip">
+          {{ noLinks ? '来自 gbrain orphans（库尚无互链时的治理清单）' : '没有 LINKS 互链的页面，可点选查看' }}
+        </p>
         <button
           v-for="n in orphans"
           :key="n.id"
@@ -345,7 +361,9 @@ onBeforeUnmount(() => {
         <el-empty v-if="!orphans.length" description="没有孤立页" :image-size="48" />
       </aside>
 
-      <div v-else class="kg-hint">点击节点查看详情；点「孤立」可列无互链页</div>
+      <div v-else class="kg-hint">
+        {{ noLinks ? '点击节点查看详情；点「孤立」可看 orphans 清单' : '点击节点查看详情；点「孤立」可列无互链页' }}
+      </div>
     </div>
     <el-empty
       v-else-if="graph"
@@ -411,6 +429,25 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
   font-size: 12px;
   color: var(--kb-text-secondary);
+}
+
+.kg-banner {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--kb-text-secondary);
+}
+
+.kg-banner code {
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .legend-item {

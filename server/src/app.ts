@@ -22,6 +22,7 @@ import {
   listGBrainFull,
   listGBrainSources,
   missingKbSourceMessage,
+  orphanGBrain,
   pageBodyGBrain,
   searchGBrain,
   searchGBrainMulti,
@@ -1533,16 +1534,17 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
-  // 知识图谱：节点来自 list，边来自 gbrain graph --json（LINKS）
+  // 知识图谱：节点来自 list；边来自逐页 gbrain graph <slug>（无全图接口）；
+  // 孤立优先用 gbrain orphans（库无互链时不能用「度=0」把全部页都标孤立）
   app.get(
     '/api/admin/kb/graph',
     requireAdmin,
     asyncRoute(async (req, res) => {
       const me = userOf(res)!
       const sourceId = String(req.query.sourceId ?? req.query.source ?? '').trim() || undefined
-      const [pagesAll, linksRaw] = await Promise.all([
+      const [pagesAll, orphanRows] = await Promise.all([
         listGBrainFull(config, sourceId),
-        graphGBrain(config, sourceId).catch(() => []),
+        orphanGBrain(config).catch(() => [] as { slug: string; title: string }[]),
       ])
       // 与 /kb/pages 一致：管理员总览，绝密仅主人可见
       const pages = pagesAll.filter((pg) => {
@@ -1550,6 +1552,11 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         return parts[1] !== 'top_secret' || me.role === 'owner'
       })
       const allowed = new Set(pages.map((pg) => pg.slug))
+      const linksRaw = await graphGBrain(
+        config,
+        pages.map((pg) => pg.slug),
+        { sourceId },
+      ).catch(() => [] as { source: string; target: string }[])
       const degree = new Map<string, number>()
       for (const slug of allowed) degree.set(slug, 0)
       const links: { source: string; target: string }[] = []
@@ -1560,6 +1567,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1)
         degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1)
       }
+      const hasLinks = links.length > 0
+      const orphanSet = new Set(orphanRows.map((o) => o.slug).filter((s) => allowed.has(s)))
       const nodes = pages.map((pg) => {
         const parts = pg.slug.split('/')
         const deg = degree.get(pg.slug) ?? 0
@@ -1571,7 +1580,8 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
           sensitivity: parts[1] ?? 'unknown',
           sourceId: pg.sourceId,
           degree: deg,
-          orphan: deg === 0,
+          // 有边：度=0 即孤立；无边：以 gbrain orphans 为准，避免全员红框
+          orphan: hasLinks ? deg === 0 : orphanSet.has(pg.slug),
         }
       })
       res.json({
