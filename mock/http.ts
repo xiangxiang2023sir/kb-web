@@ -505,7 +505,11 @@ const routes: Route[] = [
       ]
       const nodes = filterSource ? allNodes.filter((n) => n.sourceId === filterSource) : allNodes
       const allowed = new Set(nodes.map((n) => n.id))
-      const links = allLinks.filter((l) => allowed.has(l.source) && allowed.has(l.target))
+      // Mock：全库不返回边；选分区返回该分区边（假装已扫描）
+      const links = filterSource
+        ? allLinks.filter((l) => allowed.has(l.source) && allowed.has(l.target))
+        : []
+      const scannedAt = filterSource ? '2026-11-23T07:00:00.000Z' : null
       sendJson(res, 200, {
         nodes,
         links,
@@ -515,6 +519,73 @@ const routes: Route[] = [
           orphanCount: nodes.filter((n) => n.orphan).length,
           fields: [...new Set(nodes.map((n) => n.field))].sort(),
         },
+        scan: filterSource
+          ? {
+              sourceId: filterSource,
+              status: 'done',
+              pageTotal: nodes.length,
+              pageDone: nodes.length,
+              edgeCount: links.length,
+              scannedAt,
+              error: null,
+              needsScan: false,
+            }
+          : {
+              sourceId: null,
+              status: 'none',
+              pageTotal: 0,
+              pageDone: 0,
+              edgeCount: 0,
+              scannedAt: null,
+              error: null,
+              needsScan: false,
+            },
+      })
+    },
+  },
+  {
+    method: 'GET',
+    pattern: '/admin/kb/graph/scan',
+    role: 'admin',
+    handler: ({ query, res }) => {
+      const sourceId = String(query.get('sourceId') ?? '').trim()
+      if (!sourceId) {
+        sendJson(res, 400, { error: '请先选择分区' })
+        return
+      }
+      sendJson(res, 200, {
+        sourceId,
+        status: 'done',
+        pageTotal: 3,
+        pageDone: 3,
+        edgeCount: 1,
+        scannedAt: '2026-11-23T07:00:00.000Z',
+        error: null,
+        needsScan: false,
+      })
+    },
+  },
+  {
+    method: 'POST',
+    pattern: '/admin/kb/graph/scan',
+    role: 'admin',
+    handler: async ({ req, res }) => {
+      const body = await readBody(req)
+      const sourceId = String(body.sourceId ?? '').trim()
+      if (!sourceId) {
+        sendJson(res, 400, { error: '请先选择分区再扫描互链' })
+        return
+      }
+      sendJson(res, 200, {
+        ok: true,
+        sourceId,
+        status: 'running',
+        pageTotal: 3,
+        pageDone: 0,
+        edgeCount: 0,
+        scannedAt: null,
+        error: null,
+        needsScan: false,
       })
     },
   },

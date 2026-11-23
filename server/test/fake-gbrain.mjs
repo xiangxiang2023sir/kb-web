@@ -148,23 +148,40 @@ if (cmd === 'list') {
 }
 
 if (cmd === 'graph') {
-  // 真实 CLI：gbrain graph <slug> — slug 必填
+  // 真实 CLI：gbrain graph <slug> — slug 必填；不带 --source-id 常为空
   const slug = args[1]
   if (!slug || slug.startsWith('--')) {
     console.error("Error [invalid_params]: Missing required parameter 'slug' for 'gbrain graph'")
     process.exit(1)
   }
-  const allEdges = [
-    { source: 'electrical/internal/inverter-f009', target: 'electrical/public/safety-basics' },
-    { from: 'electrical/public/safety-basics', to: 'dispatch/internal/route-plan' },
-    { source_slug: 'dispatch/internal/route-plan', target_slug: 'electrical/internal/inverter-f009' },
+  const srcIdx = args.indexOf('--source-id')
+  const sourceId = srcIdx >= 0 ? args[srcIdx + 1] : ''
+  if (!sourceId) {
+    console.log('[]')
+    process.exit(0)
+  }
+  const all = [
+    {
+      slug: 'electrical/internal/inverter-f009',
+      links: [{ to_slug: 'electrical/public/safety-basics', link_type: 'wikilink_basename' }],
+    },
+    {
+      slug: 'electrical/public/safety-basics',
+      links: [{ to_slug: 'dispatch/internal/route-plan', link_type: 'wikilink_basename' }],
+    },
+    {
+      slug: 'dispatch/internal/route-plan',
+      links: [{ to_slug: 'electrical/internal/inverter-f009', link_type: 'wikilink_basename' }],
+    },
   ]
-  const edges = allEdges.filter((e) => {
-    const s = e.source ?? e.from ?? e.source_slug
-    const t = e.target ?? e.to ?? e.target_slug
-    return s === slug || t === slug
-  })
-  console.log(JSON.stringify({ edges }))
+  const nodes = all.filter((n) => n.slug === slug || n.links.some((l) => l.to_slug === slug))
+  // 起点自己也要带上（depth=1 邻域）
+  if (!nodes.some((n) => n.slug === slug)) {
+    const self = all.find((n) => n.slug === slug)
+    if (self) nodes.unshift(self)
+    else nodes.unshift({ slug, links: [] })
+  }
+  console.log(JSON.stringify(nodes))
   process.exit(0)
 }
 

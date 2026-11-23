@@ -942,8 +942,106 @@ export class KbDb {
     }
   }
 
+  // ---------- 知识图谱边缓存（GBrain CLI 扫描快照，权威仍在 GBrain） ----------
+
+  getGraphScan(sourceId: string): GraphScanMeta | null {
+    const row = this.one(
+      `SELECT source_id, status, page_total, page_done, edge_count, scanned_at, error FROM kb_graph_scans WHERE source_id = ?`,
+      sourceId,
+    )
+    return row ? graphScanOf(row) : null
+  }
+
+  beginGraphScan(sourceId: string, pageTotal: number) {
+    this.run(
+      `INSERT INTO kb_graph_scans (source_id, status, page_total, page_done, edge_count, scanned_at, error)
+       VALUES (?, 'running', ?, 0, 0, NULL, NULL)
+       ON CONFLICT(source_id) DO UPDATE SET
+         status = 'running', page_total = excluded.page_total, page_done = 0,
+         edge_count = 0, scanned_at = NULL, error = NULL`,
+      sourceId,
+      pageTotal,
+    )
+  }
+
+  updateGraphScanProgress(sourceId: string, pageDone: number) {
+    this.run(`UPDATE kb_graph_scans SET page_done = ? WHERE source_id = ?`, pageDone, sourceId)
+  }
+
+  finishGraphScan(sourceId: string, edgeCount: number, scannedAt = new Date().toISOString()) {
+    this.run(
+      `UPDATE kb_graph_scans
+       SET status = 'done', page_done = page_total, edge_count = ?, scanned_at = ?, error = NULL
+       WHERE source_id = ?`,
+      edgeCount,
+      scannedAt,
+      sourceId,
+    )
+  }
+
+  failGraphScan(sourceId: string, error: string) {
+    this.run(
+      `UPDATE kb_graph_scans SET status = 'error', error = ? WHERE source_id = ?`,
+      error.slice(0, 500),
+      sourceId,
+    )
+  }
+
+  replaceGraphEdges(
+    sourceId: string,
+    edges: { source: string; target: string; linkType?: string }[],
+    scannedAt = new Date().toISOString(),
+  ) {
+    this.run(`DELETE FROM kb_graph_edges WHERE source_id = ?`, sourceId)
+    for (const edge of edges) {
+      this.run(
+        `INSERT OR REPLACE INTO kb_graph_edges (source_slug, target_slug, link_type, source_id, scanned_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        edge.source,
+        edge.target,
+        edge.linkType ?? null,
+        sourceId,
+        scannedAt,
+      )
+    }
+  }
+
+  listGraphEdges(sourceId: string): { source: string; target: string; linkType: string | null }[] {
+    return this.many(
+      `SELECT source_slug, target_slug, link_type FROM kb_graph_edges WHERE source_id = ?`,
+      sourceId,
+    ).map((r) => ({
+      source: String(r.source_slug),
+      target: String(r.target_slug),
+      linkType: r.link_type == null ? null : String(r.link_type),
+    }))
+  }
+
   close() {
     this.db.close()
+  }
+}
+
+export interface GraphScanMeta {
+  sourceId: string
+  status: 'idle' | 'running' | 'done' | 'error'
+  pageTotal: number
+  pageDone: number
+  edgeCount: number
+  scannedAt: string | null
+  error: string | null
+}
+
+function graphScanOf(r: Row): GraphScanMeta {
+  const status = String(r.status)
+  return {
+    sourceId: String(r.source_id),
+    status: status === 'running' || status === 'done' || status === 'error' ? status : 'idle',
+    pageTotal: Number(r.page_total ?? 0) || 0,
+    pageDone: Number(r.page_done ?? 0) || 0,
+    edgeCount: Number(r.edge_count ?? 0) || 0,
+    scannedAt: r.scanned_at == null ? null : String(r.scanned_at),
+    error: r.error == null || String(r.error) === '' ? null : String(r.error),
   }
 }
 
@@ -1112,6 +1210,24 @@ CREATE TABLE IF NOT EXISTS feishu_bind_codes (
 CREATE TABLE IF NOT EXISTS feishu_events (
   id TEXT PRIMARY KEY,
   seen_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kb_graph_edges (
+  source_slug TEXT NOT NULL,
+  target_slug TEXT NOT NULL,
+  link_type TEXT,
+  source_id TEXT NOT NULL,
+  scanned_at TEXT NOT NULL,
+  PRIMARY KEY (source_id, source_slug, target_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_graph_edges_source ON kb_graph_edges(source_id);
+CREATE TABLE IF NOT EXISTS kb_graph_scans (
+  source_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  page_total INTEGER NOT NULL DEFAULT 0,
+  page_done INTEGER NOT NULL DEFAULT 0,
+  edge_count INTEGER NOT NULL DEFAULT 0,
+  scanned_at TEXT,
+  error TEXT
 );
 `
 

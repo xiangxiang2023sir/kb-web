@@ -16,7 +16,6 @@ import {
   ensureGBrainSource,
   gbrainSourceExists,
   gbrainStats,
-  graphGBrain,
   isMissingGBrainSourceError,
   listGBrain,
   listGBrainFull,
@@ -24,6 +23,7 @@ import {
   missingKbSourceMessage,
   orphanGBrain,
   pageBodyGBrain,
+  scanGraphLinks,
   searchGBrain,
   searchGBrainMulti,
 } from './gbrain.js'
@@ -1534,8 +1534,19 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     }),
   )
 
-  // 知识图谱：节点来自 list；边来自逐页 gbrain graph <slug>（无全图接口）；
-  // 孤立优先用 gbrain orphans（库无互链时不能用「度=0」把全部页都标孤立）
+  // 知识图谱：节点来自 list；边来自 SQLite 快照（扫边是显式 POST，禁止 GET 现扫）
+  // 全库模式不返回边；选分区后读 kb_graph_edges。孤立用 gbrain orphans。
+  const graphScanJobs = new Map<string, Promise<void>>()
+
+  function reconcileGraphScan(sourceId: string) {
+    const meta = db.getGraphScan(sourceId)
+    if (meta?.status === 'running' && !graphScanJobs.has(sourceId)) {
+      db.failGraphScan(sourceId, '扫描中断（服务重启），请重新扫描')
+      return db.getGraphScan(sourceId)
+    }
+    return meta
+  }
+
   app.get(
     '/api/admin/kb/graph',
     requireAdmin,
@@ -1546,24 +1557,21 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
         listGBrainFull(config, sourceId),
         orphanGBrain(config).catch(() => [] as { slug: string; title: string }[]),
       ])
-      // 与 /kb/pages 一致：管理员总览，绝密仅主人可见
       const pages = pagesAll.filter((pg) => {
         const parts = pg.slug.split('/')
         return parts[1] !== 'top_secret' || me.role === 'owner'
       })
       const allowed = new Set(pages.map((pg) => pg.slug))
-      const linksRaw = await graphGBrain(
-        config,
-        pages.map((pg) => pg.slug),
-        { sourceId },
-      ).catch(() => [] as { source: string; target: string }[])
+
+      const scanMeta = sourceId ? reconcileGraphScan(sourceId) : null
+      const linksRaw = sourceId && scanMeta?.status === 'done' ? db.listGraphEdges(sourceId) : []
       const degree = new Map<string, number>()
       for (const slug of allowed) degree.set(slug, 0)
       const links: { source: string; target: string }[] = []
       for (const edge of linksRaw) {
         if (!allowed.has(edge.source) || !allowed.has(edge.target)) continue
         if (edge.source === edge.target) continue
-        links.push(edge)
+        links.push({ source: edge.source, target: edge.target })
         degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1)
         degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1)
       }
@@ -1580,10 +1588,10 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
           sensitivity: parts[1] ?? 'unknown',
           sourceId: pg.sourceId,
           degree: deg,
-          // 有边：度=0 即孤立；无边：以 gbrain orphans 为准，避免全员红框
           orphan: hasLinks ? deg === 0 : orphanSet.has(pg.slug),
         }
       })
+      const needsScan = Boolean(sourceId) && scanMeta?.status !== 'done' && scanMeta?.status !== 'running'
       res.json({
         nodes,
         links,
@@ -1593,6 +1601,115 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
           orphanCount: nodes.filter((n) => n.orphan).length,
           fields: [...new Set(nodes.map((n) => n.field))].sort(),
         },
+        scan: sourceId
+          ? {
+              sourceId,
+              status: scanMeta?.status ?? 'idle',
+              pageTotal: scanMeta?.pageTotal ?? 0,
+              pageDone: scanMeta?.pageDone ?? 0,
+              edgeCount: scanMeta?.edgeCount ?? links.length,
+              scannedAt: scanMeta?.scannedAt ?? null,
+              error: scanMeta?.error ?? null,
+              needsScan,
+            }
+          : {
+              sourceId: null,
+              status: 'none',
+              pageTotal: 0,
+              pageDone: 0,
+              edgeCount: 0,
+              scannedAt: null,
+              error: null,
+              needsScan: false,
+            },
+      })
+    }),
+  )
+
+  app.get(
+    '/api/admin/kb/graph/scan',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const sourceId = String(req.query.sourceId ?? req.query.source ?? '').trim()
+      if (!sourceId) throw new HttpError(400, '请先选择分区')
+      const meta = reconcileGraphScan(sourceId)
+      res.json({
+        sourceId,
+        status: meta?.status ?? 'idle',
+        pageTotal: meta?.pageTotal ?? 0,
+        pageDone: meta?.pageDone ?? 0,
+        edgeCount: meta?.edgeCount ?? 0,
+        scannedAt: meta?.scannedAt ?? null,
+        error: meta?.error ?? null,
+        needsScan: meta?.status !== 'done' && meta?.status !== 'running',
+      })
+    }),
+  )
+
+  app.post(
+    '/api/admin/kb/graph/scan',
+    requireAdmin,
+    asyncRoute(async (req, res) => {
+      const sourceId = String(req.body?.sourceId ?? req.query.sourceId ?? req.query.source ?? '').trim()
+      if (!sourceId) throw new HttpError(400, '请先选择分区再扫描互链')
+      const existing = db.getGraphScan(sourceId)
+      if (existing?.status === 'running' || graphScanJobs.has(sourceId)) {
+        throw new HttpError(409, '该分区正在扫描，请稍候')
+      }
+
+      const pagesAll = await listGBrainFull(config, sourceId)
+      const me = userOf(res)!
+      const pages = pagesAll.filter((pg) => {
+        const parts = pg.slug.split('/')
+        return parts[1] !== 'top_secret' || me.role === 'owner'
+      })
+      const allowed = new Set(pages.map((pg) => pg.slug))
+      db.beginGraphScan(sourceId, pages.length)
+
+      const job = (async () => {
+        try {
+          const edges = await scanGraphLinks(
+            config,
+            pages.map((pg) => pg.slug),
+            {
+              cliSourceId: '__all__',
+              concurrency: 8,
+              depth: 1,
+              onProgress: (done) => {
+                try {
+                  db.updateGraphScanProgress(sourceId, done)
+                } catch {
+                  /* 进度写失败不影响扫描 */
+                }
+              },
+            },
+          )
+          const kept = edges.filter((e) => allowed.has(e.source) && allowed.has(e.target))
+          const scannedAt = new Date().toISOString()
+          db.replaceGraphEdges(
+            sourceId,
+            kept.map((e) => ({ source: e.source, target: e.target, linkType: e.linkType })),
+            scannedAt,
+          )
+          db.finishGraphScan(sourceId, kept.length, scannedAt)
+        } catch (err) {
+          db.failGraphScan(sourceId, err instanceof Error ? err.message : String(err))
+        } finally {
+          graphScanJobs.delete(sourceId)
+        }
+      })()
+      graphScanJobs.set(sourceId, job)
+
+      res.json({
+        ok: true,
+        sourceId,
+        status: 'running',
+        pageTotal: pages.length,
+        pageDone: 0,
+        edgeCount: 0,
+        scannedAt: null,
+        error: null,
+        needsScan: false,
       })
     }),
   )

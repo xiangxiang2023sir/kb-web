@@ -270,6 +270,17 @@ export interface KbGraphNode {
   orphan: boolean
 }
 
+export interface KbGraphScan {
+  sourceId: string | null
+  status: 'none' | 'idle' | 'running' | 'done' | 'error'
+  pageTotal: number
+  pageDone: number
+  edgeCount: number
+  scannedAt: string | null
+  error: string | null
+  needsScan: boolean
+}
+
 export interface KbGraph {
   nodes: KbGraphNode[]
   links: { source: string; target: string }[]
@@ -279,6 +290,7 @@ export interface KbGraph {
     orphanCount: number
     fields: string[]
   }
+  scan: KbGraphScan
 }
 
 /** 资料库（以 GBrain 为准） */
@@ -294,6 +306,10 @@ export const kbApi = {
       .then((r) => r.data),
   graph: (sourceId?: string) =>
     http.get<KbGraph>('/admin/kb/graph', { params: sourceId ? { sourceId } : undefined }).then((r) => r.data),
+  graphScanStatus: (sourceId: string) =>
+    http.get<KbGraphScan>('/admin/kb/graph/scan', { params: { sourceId } }).then((r) => r.data),
+  graphScan: (sourceId: string) =>
+    http.post<KbGraphScan & { ok: boolean }>('/admin/kb/graph/scan', { sourceId }).then((r) => r.data),
   remove: (slug: string, sourceId?: string) =>
     http
       .delete<{ ok: boolean; slug: string; cleanedDocs: number }>('/admin/kb/page', { params: { slug, sourceId } })

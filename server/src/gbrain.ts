@@ -341,10 +341,59 @@ export async function orphanGBrain(config: AppConfig): Promise<{ slug: string; t
 export interface GBrainLink {
   source: string
   target: string
+  linkType?: string
 }
 
-/** gbrain graph --json 的宽容解析：各版本字段名不一致（edges/links，source/from，target/to）。 */
+function pushLink(out: GBrainLink[], source: string, target: string, linkType?: string) {
+  const s = source.trim()
+  const t = target.trim()
+  if (!s || !t || s === t) return
+  out.push({ source: s, target: t, ...(linkType ? { linkType } : {}) })
+}
+
+function parseEdgeRow(row: unknown): GBrainLink | null {
+  if (!row || typeof row !== 'object') return null
+  const r = row as Record<string, unknown>
+  const source = String(r.source ?? r.from ?? r.source_slug ?? r.slug ?? '').trim()
+  const target = String(r.target ?? r.to ?? r.target_slug ?? r.to_slug ?? '').trim()
+  if (!source || !target || source === target) return null
+  const linkType = String(r.link_type ?? r.linkType ?? '').trim()
+  return { source, target, ...(linkType ? { linkType } : {}) }
+}
+
+/**
+ * gbrain graph --json 的宽容解析。
+ * 真实 CLI 常见：节点数组，每项带 links[{to_slug}]；
+ * 也兼容顶层 edges/links/relations，以及纯边数组。
+ */
 export function parseGraphLinks(parsed: unknown): GBrainLink[] {
+  const out: GBrainLink[] = []
+
+  // 节点数组：[{ slug, links: [{ to_slug }] }, ...]
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    const first = parsed[0]
+    if (first && typeof first === 'object') {
+      const f = first as Record<string, unknown>
+      const looksLikeNode = Array.isArray(f.links) || ('slug' in f && !('target' in f) && !('to' in f) && !('target_slug' in f))
+      if (looksLikeNode) {
+        for (const node of parsed) {
+          if (!node || typeof node !== 'object') continue
+          const n = node as Record<string, unknown>
+          const from = String(n.slug ?? n.id ?? '').trim()
+          const nested = Array.isArray(n.links) ? n.links : []
+          for (const link of nested) {
+            if (!link || typeof link !== 'object') continue
+            const l = link as Record<string, unknown>
+            const to = String(l.to_slug ?? l.target ?? l.to ?? l.target_slug ?? '').trim()
+            const linkType = String(l.link_type ?? l.linkType ?? '').trim()
+            pushLink(out, from, to, linkType || undefined)
+          }
+        }
+        if (out.length) return dedupeLinks(out)
+      }
+    }
+  }
+
   const container = Array.isArray(parsed)
     ? parsed
     : parsed && typeof parsed === 'object'
@@ -354,54 +403,93 @@ export function parseGraphLinks(parsed: unknown): GBrainLink[] {
         [])
       : []
   const rows = Array.isArray(container) ? container : []
-  const out: GBrainLink[] = []
   for (const row of rows) {
-    const r = row as Record<string, unknown>
-    const source = String(r.source ?? r.from ?? r.source_slug ?? '').trim()
-    const target = String(r.target ?? r.to ?? r.target_slug ?? '').trim()
-    if (source && target) out.push({ source, target })
+    const edge = parseEdgeRow(row)
+    if (edge) out.push(edge)
   }
-  return out
+  return dedupeLinks(out)
+}
+
+function dedupeLinks(links: GBrainLink[]): GBrainLink[] {
+  const seen = new Map<string, GBrainLink>()
+  for (const edge of links) {
+    seen.set(`${edge.source}\0${edge.target}`, edge)
+  }
+  return [...seen.values()]
+}
+
+export interface GraphScanOptions {
+  /** 传给 CLI 的 --source-id；默认 __all__（与 list 相同，裸调常为空） */
+  cliSourceId?: string
+  concurrency?: number
+  depth?: number
+  onProgress?: (done: number, total: number) => void
 }
 
 /**
- * 收集页面互链。
- * gbrain graph 必须带 <slug>（从一页出发遍历），没有全图接口。
- * 策略：stats.link_count === 0 直接返回 []（工厂库当前常态）；
- * 否则对每个 slug 调 `graph <slug> --json`，合并去重（限并发，单页失败忽略）。
+ * 扫描互链（给后台「扫描」任务用，不要挂在 GET 上）。
+ * gbrain graph 必须带 <slug>；每次 --depth 1 --source-id __all__（或指定分区）。
+ * stats.link_count === 0 时直接 []。
  */
-export async function graphGBrain(
+export async function scanGraphLinks(
   config: AppConfig,
   slugs: string[],
-  opts?: { sourceId?: string; concurrency?: number },
+  opts?: GraphScanOptions,
 ): Promise<GBrainLink[]> {
-  if (!slugs.length) return []
+  if (!slugs.length) {
+    opts?.onProgress?.(0, 0)
+    return []
+  }
   const stats = await gbrainStats(config).catch(() => null)
-  if (stats && stats.linkCount <= 0) return []
+  if (stats && stats.linkCount <= 0) {
+    opts?.onProgress?.(slugs.length, slugs.length)
+    return []
+  }
 
   const concurrency = Math.max(1, Math.min(opts?.concurrency ?? 8, 16))
+  const depth = Math.max(1, Math.min(opts?.depth ?? 1, 3))
+  const cliSourceId = (opts?.cliSourceId || '__all__').trim() || '__all__'
   const timeout = Math.max(config.gbrain.timeoutMs, 30000)
-  const sourceArgs = opts?.sourceId ? (['--source-id', opts.sourceId] as string[]) : []
   const seen = new Map<string, GBrainLink>()
   let cursor = 0
+  let done = 0
 
   async function worker() {
     while (cursor < slugs.length) {
       const slug = slugs[cursor++]!
       try {
-        const stdout = await runGBrain(config, ['graph', slug, '--json', ...sourceArgs], timeout)
+        const stdout = await runGBrain(
+          config,
+          ['graph', slug, '--json', '--depth', String(depth), '--source-id', cliSourceId],
+          timeout,
+        )
         for (const edge of parseGraphLinks(parseJson(stdout))) {
-          if (!edge.source || !edge.target || edge.source === edge.target) continue
           seen.set(`${edge.source}\0${edge.target}`, edge)
         }
       } catch {
         // 单页失败不影响其它页
+      } finally {
+        done += 1
+        opts?.onProgress?.(done, slugs.length)
       }
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, slugs.length) }, () => worker()))
   return [...seen.values()]
+}
+
+/** @deprecated 用 scanGraphLinks；保留别名以免旧引用炸掉 */
+export async function graphGBrain(
+  config: AppConfig,
+  slugs: string[],
+  opts?: { sourceId?: string; concurrency?: number },
+): Promise<GBrainLink[]> {
+  return scanGraphLinks(config, slugs, {
+    cliSourceId: opts?.sourceId || '__all__',
+    concurrency: opts?.concurrency,
+    depth: 1,
+  })
 }
 
 export interface GBrainPage {

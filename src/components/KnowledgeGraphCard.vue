@@ -5,7 +5,7 @@ import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { kbApi, projectsApi, type KbGraph, type KbGraphNode, type ProjectItem } from '@/api/endpoints'
+import { kbApi, projectsApi, type KbGraph, type KbGraphNode, type KbGraphScan, type ProjectItem } from '@/api/endpoints'
 import { fieldLabels, sensitivityLabels } from '@/utils/labels'
 import type { Field, Sensitivity } from '@/types'
 
@@ -18,6 +18,7 @@ const FIELD_COLOR: Record<string, string> = {
 }
 
 const loading = ref(true)
+const scanning = ref(false)
 const graph = ref<KbGraph | null>(null)
 const keyword = ref('')
 /** 空 = 全部分区；值是 GBrain sourceId */
@@ -27,6 +28,7 @@ const selected = ref<KbGraphNode | null>(null)
 const showOrphans = ref(false)
 const chartEl = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const sourceOptions = computed(() => {
   const seen = new Set<string>()
@@ -101,6 +103,33 @@ function statusLabel(n: KbGraphNode) {
 }
 
 const noLinks = computed(() => (graph.value?.stats.linkCount ?? 0) === 0)
+const scan = computed(() => graph.value?.scan ?? null)
+const scanRunning = computed(() => scan.value?.status === 'running' || scanning.value)
+const needsScan = computed(() => Boolean(sourceId.value) && (scan.value?.needsScan ?? false))
+const scanProgress = computed(() => {
+  const s = scan.value
+  if (!s || !s.pageTotal) return 0
+  return Math.min(100, Math.round((s.pageDone / s.pageTotal) * 100))
+})
+
+function formatScannedAt(iso: string | null | undefined) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
+
+function stopPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function applyScan(meta: KbGraphScan) {
+  if (!graph.value) return
+  graph.value = { ...graph.value, scan: meta }
+}
 
 async function loadProjects() {
   projects.value = await projectsApi.list().catch(() => [])
@@ -110,8 +139,15 @@ async function load() {
   loading.value = true
   selected.value = null
   showOrphans.value = false
+  stopPoll()
   try {
     graph.value = await kbApi.graph(sourceId.value || undefined)
+    if (graph.value.scan?.status === 'running' && sourceId.value) {
+      scanning.value = true
+      startPoll()
+    } else {
+      scanning.value = false
+    }
     await nextTick()
     render()
   } catch {
@@ -119,6 +155,55 @@ async function load() {
     graph.value = null
   } finally {
     loading.value = false
+  }
+}
+
+async function startScan() {
+  if (!sourceId.value) {
+    ElMessage.warning('请先选择分区再扫描互链')
+    return
+  }
+  if (scanRunning.value) return
+  scanning.value = true
+  try {
+    const meta = await kbApi.graphScan(sourceId.value)
+    applyScan(meta)
+    startPoll()
+  } catch (err: unknown) {
+    scanning.value = false
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    ElMessage.error(msg || '启动扫描失败')
+  }
+}
+
+function startPoll() {
+  stopPoll()
+  pollTimer = setInterval(() => {
+    void pollScan()
+  }, 1500)
+}
+
+async function pollScan() {
+  if (!sourceId.value) {
+    stopPoll()
+    scanning.value = false
+    return
+  }
+  try {
+    const meta = await kbApi.graphScanStatus(sourceId.value)
+    applyScan(meta)
+    if (meta.status === 'done') {
+      stopPoll()
+      scanning.value = false
+      ElMessage.success(`扫描完成：${meta.edgeCount} 条互链`)
+      await load()
+    } else if (meta.status === 'error') {
+      stopPoll()
+      scanning.value = false
+      ElMessage.error(meta.error || '扫描失败')
+    }
+  } catch {
+    /* 轮询失败下一轮再试 */
   }
 }
 
@@ -242,6 +327,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopPoll()
   window.removeEventListener('resize', onResize)
   chart?.dispose()
   chart = null
@@ -280,6 +366,16 @@ onBeforeUnmount(() => {
           placeholder="搜索页名 / slug"
           style="width: 160px"
         />
+        <el-button
+          v-if="sourceId"
+          size="small"
+          type="primary"
+          plain
+          :loading="scanRunning"
+          @click="startScan"
+        >
+          {{ scan?.status === 'done' ? '刷新互链' : '扫描互链' }}
+        </el-button>
         <el-button size="small" :loading="loading" @click="load">刷新</el-button>
       </div>
     </div>
@@ -295,10 +391,25 @@ onBeforeUnmount(() => {
       </span>
     </div>
 
-    <div v-if="graph && noLinks && graph.nodes.length" class="kg-banner">
-      库中暂无页面互链（wikilink）。可浏览节点与孤立清单；正文写入
-      <code>[[链接]]</code>
-      并由 GBrain 解析后才会出现连线。
+    <div v-if="graph && !sourceId" class="kg-banner">
+      全库模式只浏览节点与孤立清单。互链按分区缓存，请选择分区后扫描（约 1 分钟），之后打开秒出。
+    </div>
+    <div v-else-if="graph && needsScan" class="kg-banner kg-banner-action">
+      <span>分区「{{ sourceLabel(sourceId) }}」尚未扫描互链快照。</span>
+      <el-button size="small" type="primary" :loading="scanRunning" @click="startScan">扫描互链（约 1 分钟）</el-button>
+    </div>
+    <div v-else-if="graph && scanRunning" class="kg-banner">
+      正在扫描互链：{{ scan?.pageDone ?? 0 }}/{{ scan?.pageTotal ?? 0 }}
+      <div class="kg-progress"><i :style="{ width: `${scanProgress}%` }" /></div>
+    </div>
+    <div v-else-if="graph && sourceId && scan?.status === 'done'" class="kg-banner kg-banner-ok">
+      互链快照 {{ graph.stats.linkCount }} 条
+      <template v-if="scan.scannedAt"> · 扫描于 {{ formatScannedAt(scan.scannedAt) }}</template>
+      <span class="kg-muted">（非实时，改文后请点「刷新互链」）</span>
+    </div>
+    <div v-else-if="graph && scan?.status === 'error'" class="kg-banner kg-banner-err">
+      上次扫描失败：{{ scan.error || '未知错误' }}
+      <el-button size="small" @click="startScan">重试</el-button>
     </div>
 
     <el-skeleton v-if="loading && !graph" :rows="6" animated />
@@ -442,12 +553,46 @@ onBeforeUnmount(() => {
   color: var(--kb-text-secondary);
 }
 
-.kg-banner code {
-  font-size: 11px;
-  padding: 0 4px;
-  border-radius: 3px;
+.kg-banner-action,
+.kg-banner-err {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kg-banner-ok {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.kg-banner-err {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.kg-muted {
+  margin-left: 4px;
+  opacity: 0.75;
+  font-weight: 400;
+}
+
+.kg-progress {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 999px;
   background: #e2e8f0;
-  color: #334155;
+  overflow: hidden;
+}
+
+.kg-progress > i {
+  display: block;
+  height: 100%;
+  background: #004898;
+  border-radius: inherit;
 }
 
 .legend-item {
