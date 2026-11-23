@@ -413,8 +413,9 @@ const routes: Route[] = [
     method: 'GET',
     pattern: '/admin/kb/graph',
     role: 'admin',
-    handler: ({ res }) => {
-      const nodes = [
+    handler: ({ query, res }) => {
+      const filterSource = String(query.get('sourceId') ?? query.get('source') ?? '').trim()
+      const allNodes = [
         {
           id: 'electrical/internal/inverter-f009',
           slug: 'electrical/internal/inverter-f009',
@@ -465,19 +466,54 @@ const routes: Route[] = [
           degree: 0,
           orphan: true,
         },
+        {
+          id: 'electrical/internal/amr-lidar',
+          slug: 'electrical/internal/amr-lidar',
+          title: 'AMR 激光雷达标定',
+          field: 'electrical',
+          sensitivity: 'internal',
+          sourceId: 'p-amr01',
+          degree: 1,
+          orphan: false,
+        },
+        {
+          id: 'dispatch/internal/amr-route',
+          slug: 'dispatch/internal/amr-route',
+          title: 'AMR 路径调度',
+          field: 'dispatch',
+          sensitivity: 'internal',
+          sourceId: 'p-amr01',
+          degree: 1,
+          orphan: false,
+        },
+        {
+          id: 'mechanical/internal/amr-wheel',
+          slug: 'mechanical/internal/amr-wheel',
+          title: 'AMR 轮系保养',
+          field: 'mechanical',
+          sensitivity: 'internal',
+          sourceId: 'p-amr01',
+          degree: 0,
+          orphan: true,
+        },
       ]
+      const allLinks = [
+        { source: 'electrical/internal/inverter-f009', target: 'electrical/public/safety-basics' },
+        { source: 'electrical/public/safety-basics', target: 'dispatch/internal/route-plan' },
+        { source: 'dispatch/internal/route-plan', target: 'electrical/internal/inverter-f009' },
+        { source: 'electrical/internal/amr-lidar', target: 'dispatch/internal/amr-route' },
+      ]
+      const nodes = filterSource ? allNodes.filter((n) => n.sourceId === filterSource) : allNodes
+      const allowed = new Set(nodes.map((n) => n.id))
+      const links = allLinks.filter((l) => allowed.has(l.source) && allowed.has(l.target))
       sendJson(res, 200, {
         nodes,
-        links: [
-          { source: 'electrical/internal/inverter-f009', target: 'electrical/public/safety-basics' },
-          { source: 'electrical/public/safety-basics', target: 'dispatch/internal/route-plan' },
-          { source: 'dispatch/internal/route-plan', target: 'electrical/internal/inverter-f009' },
-        ],
+        links,
         stats: {
           nodeCount: nodes.length,
-          linkCount: 3,
+          linkCount: links.length,
           orphanCount: nodes.filter((n) => n.orphan).length,
-          fields: ['dispatch', 'electrical', 'mechanical'],
+          fields: [...new Set(nodes.map((n) => n.field))].sort(),
         },
       })
     },

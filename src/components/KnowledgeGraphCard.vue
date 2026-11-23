@@ -5,7 +5,7 @@ import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { kbApi, type KbGraph, type KbGraphNode } from '@/api/endpoints'
+import { kbApi, projectsApi, type KbGraph, type KbGraphNode, type ProjectItem } from '@/api/endpoints'
 
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer])
 
@@ -18,9 +18,28 @@ const FIELD_COLOR: Record<string, string> = {
 const loading = ref(true)
 const graph = ref<KbGraph | null>(null)
 const keyword = ref('')
+/** 空 = 全部分区；值是 GBrain sourceId */
+const sourceId = ref('')
+const projects = ref<ProjectItem[]>([])
 const selected = ref<KbGraphNode | null>(null)
 const chartEl = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
+
+const sourceOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = [
+    { value: 'default', label: '公共库 (default)' },
+    { value: 'tools', label: '工具库 (tools)' },
+  ]
+  for (const o of opts) seen.add(o.value)
+  for (const p of projects.value) {
+    const sid = (p.kbSource || p.id || '').trim()
+    if (!sid || seen.has(sid)) continue
+    seen.add(sid)
+    opts.push({ value: sid, label: `${p.name} (${sid})` })
+  }
+  return opts
+})
 
 const statsLine = computed(() => {
   if (!graph.value) return ''
@@ -37,11 +56,19 @@ function shortLabel(title: string, slug: string) {
   return t.length > 10 ? `${t.slice(0, 10)}…` : t
 }
 
+function sourceLabel(id: string) {
+  return sourceOptions.value.find((o) => o.value === id)?.label ?? id
+}
+
+async function loadProjects() {
+  projects.value = await projectsApi.list().catch(() => [])
+}
+
 async function load() {
   loading.value = true
   selected.value = null
   try {
-    graph.value = await kbApi.graph()
+    graph.value = await kbApi.graph(sourceId.value || undefined)
     await nextTick()
     render()
   } catch {
@@ -92,7 +119,7 @@ function render() {
       },
       tooltip: {
         formatter: () =>
-          `${n.title}<br/><span style="opacity:.7">${n.slug}</span><br/>领域 ${n.field} · 度 ${n.degree}${n.orphan ? ' · 孤立' : ''}`,
+          `${n.title}<br/><span style="opacity:.7">${n.slug}</span><br/>分区 ${n.sourceId || '—'} · 领域 ${n.field} · 度 ${n.degree}${n.orphan ? ' · 孤立' : ''}`,
       },
     }
   })
@@ -130,9 +157,12 @@ function onResize() {
 }
 
 watch(keyword, () => render())
+watch(sourceId, () => {
+  void load()
+})
 
 onMounted(() => {
-  void load()
+  void loadProjects().then(() => load())
   window.addEventListener('resize', onResize)
 })
 
@@ -151,12 +181,21 @@ onBeforeUnmount(() => {
         <div class="kg-sub">{{ statsLine || '加载中…' }}</div>
       </div>
       <div class="kg-actions">
+        <el-select
+          v-model="sourceId"
+          clearable
+          size="small"
+          placeholder="全部分区"
+          style="width: 200px"
+        >
+          <el-option v-for="o in sourceOptions" :key="o.value" :label="o.label" :value="o.value" />
+        </el-select>
         <el-input
           v-model="keyword"
           clearable
           size="small"
           placeholder="搜索页名 / slug"
-          style="width: 180px"
+          style="width: 160px"
         />
         <el-button size="small" :loading="loading" @click="load">刷新</el-button>
       </div>
@@ -169,12 +208,18 @@ onBeforeUnmount(() => {
         <div class="preview-title">{{ selected.title }}</div>
         <div class="preview-slug">{{ selected.slug }}</div>
         <dl>
+          <div><dt>分区</dt><dd>{{ sourceLabel(selected.sourceId) }}</dd></div>
           <div><dt>领域</dt><dd>{{ selected.field }}</dd></div>
           <div><dt>密级</dt><dd>{{ selected.sensitivity }}</dd></div>
           <div><dt>互链度</dt><dd>{{ selected.degree }}</dd></div>
           <div><dt>状态</dt><dd>{{ selected.orphan ? '孤立页' : '已互链' }}</dd></div>
         </dl>
-        <el-button text type="primary" size="small" @click="$router.push({ path: '/admin/kb', query: { q: selected.slug } })">
+        <el-button
+          text
+          type="primary"
+          size="small"
+          @click="$router.push({ path: '/admin/kb', query: { q: selected.slug, project: selected.sourceId } })"
+        >
           在资料库中查看
         </el-button>
       </aside>
