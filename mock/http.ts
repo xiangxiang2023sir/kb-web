@@ -417,7 +417,7 @@ const routes: Route[] = [
       const filterSource = String(query.get('sourceId') ?? query.get('source') ?? '').trim()
       const allNodes = [
         {
-          id: 'electrical/internal/inverter-f009',
+          id: 'default::electrical/internal/inverter-f009',
           slug: 'electrical/internal/inverter-f009',
           title: '变频器过载故障处理规程',
           field: 'electrical',
@@ -427,7 +427,7 @@ const routes: Route[] = [
           orphan: false,
         },
         {
-          id: 'electrical/public/safety-basics',
+          id: 'default::electrical/public/safety-basics',
           slug: 'electrical/public/safety-basics',
           title: '电气安全基础',
           field: 'electrical',
@@ -437,7 +437,7 @@ const routes: Route[] = [
           orphan: false,
         },
         {
-          id: 'dispatch/internal/route-plan',
+          id: 'default::dispatch/internal/route-plan',
           slug: 'dispatch/internal/route-plan',
           title: '调度路径规划',
           field: 'dispatch',
@@ -447,7 +447,7 @@ const routes: Route[] = [
           orphan: false,
         },
         {
-          id: 'mechanical/internal/orphan-note',
+          id: 'default::mechanical/internal/orphan-note',
           slug: 'mechanical/internal/orphan-note',
           title: '孤立备注',
           field: 'mechanical',
@@ -457,7 +457,7 @@ const routes: Route[] = [
           orphan: true,
         },
         {
-          id: 'mechanical/public/lubrication',
+          id: 'default::mechanical/public/lubrication',
           slug: 'mechanical/public/lubrication',
           title: '润滑保养要点',
           field: 'mechanical',
@@ -467,7 +467,7 @@ const routes: Route[] = [
           orphan: true,
         },
         {
-          id: 'electrical/internal/amr-lidar',
+          id: 'p-amr01::electrical/internal/amr-lidar',
           slug: 'electrical/internal/amr-lidar',
           title: 'AMR 激光雷达标定',
           field: 'electrical',
@@ -477,7 +477,7 @@ const routes: Route[] = [
           orphan: false,
         },
         {
-          id: 'dispatch/internal/amr-route',
+          id: 'p-amr01::dispatch/internal/amr-route',
           slug: 'dispatch/internal/amr-route',
           title: 'AMR 路径调度',
           field: 'dispatch',
@@ -487,7 +487,7 @@ const routes: Route[] = [
           orphan: false,
         },
         {
-          id: 'mechanical/internal/amr-wheel',
+          id: 'p-amr01::mechanical/internal/amr-wheel',
           slug: 'mechanical/internal/amr-wheel',
           title: 'AMR 轮系保养',
           field: 'mechanical',

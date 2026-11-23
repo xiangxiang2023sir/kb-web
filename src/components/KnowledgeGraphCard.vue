@@ -59,13 +59,15 @@ const orphans = computed(() => (graph.value?.nodes ?? []).filter((n) => n.orphan
 
 const neighbors = computed(() => {
   if (!selected.value || !graph.value) return []
-  const id = selected.value.id
-  const ids = new Set<string>()
+  // links 存的是 slug；节点 id 已是 sourceId::slug
+  const slug = selected.value.slug
+  const sid = selected.value.sourceId
+  const slugs = new Set<string>()
   for (const l of graph.value.links) {
-    if (l.source === id) ids.add(l.target)
-    if (l.target === id) ids.add(l.source)
+    if (l.source === slug) slugs.add(l.target)
+    if (l.target === slug) slugs.add(l.source)
   }
-  return graph.value.nodes.filter((n) => ids.has(n.id))
+  return graph.value.nodes.filter((n) => slugs.has(n.slug) && n.sourceId === sid)
 })
 
 const statsLine = computed(() => {
@@ -148,19 +150,26 @@ async function load() {
     } else {
       scanning.value = false
     }
-    await nextTick()
-    render()
   } catch (err) {
     const e = err as Error & { response?: { status?: number; data?: unknown } }
     const detail = e?.message || String(err)
     const status = e?.response?.status
-    // 诊断：把完整堆栈挂到 window 上，便于在不改代码的情况下取证
     ;(window as unknown as Record<string, unknown>).__graphErr = e?.stack || detail
-    console.error('[graph] load/render failed:', status ?? '', detail, err)
+    console.error('[graph] load failed:', status ?? '', detail, err)
     ElMessage.error(`知识图谱加载失败 [${status ?? '-'}] ${detail}`)
     graph.value = null
+    return
   } finally {
     loading.value = false
+  }
+  try {
+    await nextTick()
+    render()
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    ;(window as unknown as Record<string, unknown>).__graphErr = err instanceof Error ? err.stack : detail
+    console.error('[graph] render failed:', detail, err)
+    ElMessage.error(`知识图谱渲染失败：${detail}`)
   }
 }
 
@@ -242,29 +251,26 @@ function render() {
     chart = echarts.init(chartEl.value)
     chart.on('click', (params) => {
       if (params.dataType !== 'node') return
-      const data = params.data as { _idx?: number }
-      const node = data._idx != null ? graph.value?.nodes[data._idx] : undefined
+      const data = params.data as { id?: string }
+      const node = graph.value?.nodes.find((n) => n.id === data.id)
       selectNode(node ?? null)
     })
   }
   const q = keyword.value.trim().toLowerCase()
-  const selectedId = selected.value?.id
+  const selectedSlug = selected.value?.slug
   const categories = graph.value.stats.fields.map((f) => ({
     name: f,
     itemStyle: { color: colorOf(f) },
   }))
   const catIndex = new Map(categories.map((c, i) => [c.name, i]))
-  const nodes = graph.value.nodes.map((n, i) => {
+  // 用后端保证唯一的 id（sourceId::slug），避免跨分区同 slug 时 ECharts 丢节点崩溃
+  const nodes = graph.value.nodes.map((n) => {
     const hit = matches(n, q)
     const dim = Boolean(q) && !hit
-    const isSelected = selected.value === n
+    const isSelected = selected.value?.id === n.id
     return {
-      // ECharts graph 的 id / name 必须全局唯一：重复时 addNode 会跳过该节点，
-      // 导致 nodes 数组比 data 短，Graph.update 里 nodes[rawIndex] 为 undefined 而崩溃
-      // （"Cannot set properties of undefined (setting 'dataIndex')"）
-      id: `node-${i}`,
-      name: `node-${i}`,
-      _idx: i,
+      id: n.id,
+      name: n.id,
       displayName: shortLabel(n.title, n.slug),
       value: n.degree,
       symbolSize: Math.min(46, (isSelected ? 18 : 14) + n.degree * 5),
@@ -288,7 +294,7 @@ function render() {
       },
     }
   })
-  // 图上节点 id 已改成 node-i，links 必须用索引引用，否则 ECharts 找不到端点
+  // 边接口仍是 slug；分区视图内 slug 唯一，用索引挂到节点上
   const idxBySlug = new Map<string, number>()
   graph.value.nodes.forEach((n, i) => {
     if (!idxBySlug.has(n.slug)) idxBySlug.set(n.slug, i)
@@ -298,7 +304,7 @@ function render() {
       const s = idxBySlug.get(l.source)
       const t = idxBySlug.get(l.target)
       if (s == null || t == null || s === t) return null
-      const related = selectedId && (l.source === selectedId || l.target === selectedId)
+      const related = selectedSlug && (l.source === selectedSlug || l.target === selectedSlug)
       return {
         source: s,
         target: t,

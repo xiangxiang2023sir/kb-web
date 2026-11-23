@@ -826,6 +826,7 @@ agent: { publicOnlyOnly: true }
     const allRes = await fetch(`${base}/api/admin/kb/graph`, { headers: { cookie } })
     assert.equal(allRes.status, 200)
     const allBody = (await allRes.json()) as {
+      nodes: { id: string; slug: string; sourceId: string }[]
       stats: { nodeCount: number; linkCount: number; orphanCount: number }
       links: unknown[]
       scan: { status: string; needsScan: boolean }
@@ -836,6 +837,8 @@ agent: { publicOnlyOnly: true }
     assert.equal(allBody.scan.status, 'none')
     assert.equal(allBody.scan.needsScan, false)
     assert.equal(allBody.stats.orphanCount, 2)
+    assert.equal(new Set(allBody.nodes.map((n) => n.id)).size, allBody.nodes.length, '节点 id 必须唯一')
+    assert.ok(allBody.nodes.every((n) => n.id === `${n.sourceId}::${n.slug}`))
 
     // 选分区未扫描：needsScan
     const before = await fetch(`${base}/api/admin/kb/graph?sourceId=default`, { headers: { cookie } })

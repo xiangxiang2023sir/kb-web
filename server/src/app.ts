@@ -1580,8 +1580,9 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
       const nodes = pages.map((pg) => {
         const parts = pg.slug.split('/')
         const deg = degree.get(pg.slug) ?? 0
+        // id 必须全局唯一：跨分区可能出现相同 slug（ECharts / Vue key 都会踩坑）
         return {
-          id: pg.slug,
+          id: `${pg.sourceId}::${pg.slug}`,
           slug: pg.slug,
           title: pg.title || pg.slug,
           field: parts[0] ?? 'unknown',
