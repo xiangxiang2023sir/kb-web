@@ -345,6 +345,8 @@ export class KbDb {
     content: string
     updatedAt: string
     sourcePath?: string
+    /** sync 登记时就要写 slug，否则 findDocBySlug / 健康检查对不上 */
+    slug?: string | null
     projectId?: string | null
     submittedBy?: string | null
     submittedVia?: string | null
@@ -352,8 +354,8 @@ export class KbDb {
   }) {
     this.run(
       `INSERT INTO docs
-        (id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, content, updated_at, source_path, project_id, submitted_by, submitted_via, submitter_agent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, title, field, sensitivity, status, suggested_field, suggested_sensitivity, content, updated_at, source_path, slug, project_id, submitted_by, submitted_via, submitter_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       row.id,
       row.title,
       row.field,
@@ -364,6 +366,7 @@ export class KbDb {
       row.content,
       row.updatedAt,
       row.sourcePath ?? null,
+      row.slug ?? null,
       row.projectId ?? null,
       row.submittedBy ?? null,
       row.submittedVia ?? null,
@@ -445,9 +448,20 @@ export class KbDb {
   }
 
   findDocBySlug(slug: string) {
-    const r = this.one(`SELECT id, title, slug FROM docs WHERE slug = ? AND status = 'confirmed'`, slug)
+    // sync 旧数据可能只写在 source_path
+    const r = this.one(
+      `SELECT id, title, slug, source_path FROM docs
+       WHERE status = 'confirmed' AND (slug = ? OR source_path = ?)
+       LIMIT 1`,
+      slug,
+      slug,
+    )
     if (!r) return null
-    return { id: String(r.id), title: String(r.title), slug: String(r.slug) }
+    return {
+      id: String(r.id),
+      title: String(r.title),
+      slug: String(r.slug ?? r.source_path ?? slug),
+    }
   }
 
   confirmedSlugs(): Set<string> {
@@ -773,15 +787,22 @@ export class KbDb {
   }
 
   confirmedDocs(): { id: string; title: string; slug: string; content: string; sourcePath: string | null }[] {
-    return this.many(
-      `SELECT id, title, slug, content, source_path FROM docs WHERE status = 'confirmed' AND slug IS NOT NULL`,
-    ).map((r) => ({
-      id: String(r.id),
-      title: String(r.title),
-      slug: String(r.slug),
-      content: String(r.content ?? ''),
-      sourcePath: r.source_path == null ? null : String(r.source_path),
-    }))
+    // 旧 sync 可能只写了 source_path、没写 slug；能解析成 领域/密级/名 的也算台账页
+    return this.many(`SELECT id, title, slug, content, source_path FROM docs WHERE status = 'confirmed'`)
+      .map((r) => {
+        const slugCol = r.slug == null ? '' : String(r.slug).trim()
+        const sourcePath = r.source_path == null ? null : String(r.source_path)
+        const fromPath =
+          sourcePath && !slugCol && /^[^/]+\/[^/]+\/[^/]+$/.test(sourcePath) ? sourcePath : ''
+        return {
+          id: String(r.id),
+          title: String(r.title),
+          slug: slugCol || fromPath,
+          content: String(r.content ?? ''),
+          sourcePath,
+        }
+      })
+      .filter((d) => d.slug)
   }
 
   addDocRef(docId: string, sessionId: string, question: string, askedAt: string) {

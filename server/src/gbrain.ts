@@ -343,23 +343,6 @@ export interface GBrainPage {
   title: string
 }
 
-export async function listGBrain(config: AppConfig): Promise<GBrainPage[]> {
-  const stdout = await runGBrain(config, ['list'])
-  // 每行格式: slug\ttype\tdate\ttitle
-  return stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('No pages'))
-    .map((line) => {
-      const parts = line.split('\t')
-      return {
-        slug: parts[0] ?? '',
-        title: parts[3] ?? parts[0] ?? '',
-      }
-    })
-    .filter((p) => p.slug)
-}
-
 export interface GBrainStats {
   pageCount: number
   chunkCount: number
@@ -409,15 +392,37 @@ function pageFullOf(row: { slug?: string; title?: string; type?: string; updated
   }
 }
 
-/** gbrain list --json。一页 1000 条，取到不足一页为止。 */
+/** 纯文本 list 输出：slug\ttype\tdate\ttitle（旧版 gbrain 或不带 --json） */
+function parseListPlain(stdout: string, fallbackSourceId: string): GBrainPageFull[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('No pages'))
+    .map((line) => {
+      const parts = line.split('\t')
+      return pageFullOf({
+        slug: parts[0],
+        title: parts[3] ?? parts[0],
+        type: parts[1] ?? 'page',
+        source_id: fallbackSourceId === '__all__' ? 'default' : fallbackSourceId,
+      })
+    })
+    .filter((p) => p.slug)
+}
+
+/**
+ * gbrain list --json + --source-id（默认 __all__ 扫全部分区）。
+ * 一页 1000 条；JSON 解析失败时内联文本解析，绝不回调 listGBrain（防递归）。
+ */
 export async function listGBrainFull(config: AppConfig, sourceId = '__all__'): Promise<GBrainPageFull[]> {
   const pageSize = 1000
   const all: GBrainPageFull[] = []
+  const timeout = Math.max(config.gbrain.timeoutMs, 120000)
   for (let offset = 0; offset < 50_000; offset += pageSize) {
     const raw = await runGBrain(
       config,
       ['list', '--limit', String(pageSize), '--offset', String(offset), '--json', '--source-id', sourceId],
-      Math.max(config.gbrain.timeoutMs, 120000),
+      timeout,
     )
     let rows: GBrainPageFull[]
     try {
@@ -426,13 +431,24 @@ export async function listGBrainFull(config: AppConfig, sourceId = '__all__'): P
       rows = parsed.filter((r) => r.slug).map(pageFullOf)
     } catch {
       if (offset > 0) break
-      const plain = await listGBrain(config)
-      return plain.map((p) => ({ slug: p.slug, title: p.title, type: 'page', updatedAt: null, sourceId: 'default' }))
+      // 旧版不支持 --json：同一 source 改走纯文本，禁止再调 listGBrain
+      const plain = await runGBrain(
+        config,
+        ['list', '--limit', String(pageSize), '--offset', '0', '--source-id', sourceId],
+        timeout,
+      )
+      return parseListPlain(plain, sourceId)
     }
     all.push(...rows)
     if (rows.length < pageSize) break
   }
   return all
+}
+
+/** 列出全部页面（跨分区）。内部委托 listGBrainFull，避免裸 list 只打到 default。 */
+export async function listGBrain(config: AppConfig): Promise<GBrainPage[]> {
+  const pages = await listGBrainFull(config, '__all__')
+  return pages.map((p) => ({ slug: p.slug, title: p.title }))
 }
 
 /** 删一个页（硬删：行 + 分块 + 磁盘 md 一起） */

@@ -163,6 +163,16 @@ export interface HealthIssue {
   detail: string
 }
 
+/** 健康检查跑完后的摘要（预期行为用数字说明，不刷成几百条告警） */
+export interface HealthSummary {
+  ledgerPages: number
+  bodyInSqlite: number
+  bodyInGbrainOnly: number
+  gbrainPages: number | null
+  missingInGbrain: number
+  missingInLedger: number
+}
+
 // ---------- 问题队列 ----------
 
 export type QuestionStatus = 'open' | 'assigned' | 'resolved'

@@ -19,6 +19,7 @@ import type {
   DocStatus,
   Field,
   HealthIssue,
+  HealthSummary,
   QuestionDetail,
   QuestionItem,
   QuestionStatus,
@@ -132,8 +133,9 @@ export const adminApi = {
   rejectDoc: (id: string, reason: string) => http.post(`/admin/docs/${id}/reject`, { reason }),
 
   healthIssues: () => http.get<HealthIssue[]>('/admin/health/issues').then((r) => r.data),
-  /** 触发一次全量检查：死链、引用完整性、格式规范 */
-  runHealth: () => http.post('/admin/health/run'),
+  /** 台账↔GBrain 对照 + 有正文副本才验 frontmatter/死链 */
+  runHealth: () =>
+    http.post<{ ok: boolean; summary: HealthSummary; issueCount: number }>('/admin/health/run').then((r) => r.data),
 
   questions: (params: { field?: Field; status?: QuestionStatus }) =>
     http.get<QuestionItem[]>('/admin/questions', { params }).then((r) => r.data),

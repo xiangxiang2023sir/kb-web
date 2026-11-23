@@ -515,9 +515,20 @@ const routes: Route[] = [
     pattern: '/admin/health/run',
     role: 'admin',
     handler: async ({ res }) => {
-      // 模拟 gbrain find_orphans / find_anomalies
-      await delay(1200)
-      sendJson(res, 200, { ok: true })
+      await delay(400)
+      // 模拟：多数页正文只在 GBrain，不再刷 frontmatter 假阳性
+      sendJson(res, 200, {
+        ok: true,
+        issueCount: issues.length,
+        summary: {
+          ledgerPages: docs.filter((d) => d.status === 'confirmed').length,
+          bodyInSqlite: 2,
+          bodyInGbrainOnly: Math.max(0, docs.filter((d) => d.status === 'confirmed').length - 2),
+          gbrainPages: 12,
+          missingInGbrain: 0,
+          missingInLedger: 0,
+        },
+      })
     },
   },
   {

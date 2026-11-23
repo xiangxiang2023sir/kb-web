@@ -87,5 +87,37 @@ if (cmd === 'orphans') {
   process.exit(0)
 }
 
+if (cmd === 'list') {
+  // 模拟真实 GBrain：不带 --source-id 时只打 default，常为 0 页
+  const srcIdx = args.indexOf('--source-id')
+  const sourceId = srcIdx >= 0 ? args[srcIdx + 1] : ''
+  if (!sourceId) {
+    console.log('No pages found')
+    process.exit(0)
+  }
+  const pages = [
+    {
+      slug: 'electrical/internal/inverter-f009',
+      title: '变频器过载故障处理规程',
+      type: 'page',
+      updated_at: '2026-01-01T00:00:00Z',
+      source_id: 'default',
+    },
+    {
+      slug: 'electrical/public/safety-basics',
+      title: '电气安全基础',
+      type: 'page',
+      updated_at: '2026-01-02T00:00:00Z',
+      source_id: 'default',
+    },
+  ]
+  if (args.includes('--json')) {
+    console.log(JSON.stringify(pages))
+  } else {
+    console.log(pages.map((p) => `${p.slug}\t${p.type}\t${p.updated_at.slice(0, 10)}\t${p.title}`).join('\n'))
+  }
+  process.exit(0)
+}
+
 console.error('unknown', args.join(' '))
 process.exit(1)

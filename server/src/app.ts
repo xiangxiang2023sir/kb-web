@@ -640,6 +640,7 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
           content: '', // 正文不存，用时从 GBrain 取
           updatedAt: new Date().toISOString(),
           sourcePath: page.slug,
+          slug: page.slug,
         })
         synced++
       }
@@ -791,12 +792,12 @@ export async function start(opts?: { dataDir?: string; port?: number; host?: str
     requireAdmin,
     asyncRoute(async (_req, res) => {
       try {
-        const issues = await runHealth(db, config)
+        const { issues, summary } = await runHealth(db, config)
         db.replaceHealth(issues, new Date().toISOString())
+        res.json({ ok: true, summary, issueCount: issues.length })
       } catch (err) {
         throw new HttpError(502, err instanceof GBrainError ? err.message : '检查失败')
       }
-      res.json({ ok: true })
     }),
   )
 
