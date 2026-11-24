@@ -81,11 +81,34 @@
 
 每人默认只看自己的会话。主人/管理员能看全部（有提问人、来源：网页/外部）。点开别人的会话只读，仍可勾选入库或删除。外部 agent 调 `/api/agent/ask` 时带 `sessionId` 续场；不带则接最近一场（`chat.agentIdleHours`，默认 8 小时），`"new": true` 新开。周归档按 ISO 周写本机文件，不自动进正式库，网页可「送入待确认」。
 
+## 语义检索（embedding）
+
+问答首轮把去口语后的**整句**交给 `gbrain search`（给 bge-m3）。  
+`OPENAI_API_KEY` / `OPENAI_BASE_URL` 未配，或 `gbrain stats` 里 `embedded_count` 远小于 `page_count` 时，会退化成关键词：领域高频词（AGV、机器人）会淹没真正答案页。
+
+- 配置模板与自检命令：`server/.env.example`、生产机清单 `部署说明.md` 第四节
+- 换 key / 新入库较多后：`gbrain embed --stale --yes`，再重启后端
+- 排查 CLI 时 search / list / graph 都要带 `--source-id __all__`（裸调常像空库）
+- **不要**为了压噪声把「AGV」塞进 `config.yaml` → `search.questionPhrases`（那是去疑问说法的；删掉会伤整句语义）
+
+## 知识正文别名（入库约定）
+
+规程/参数页里，**英文字段名与车间口语要写在一起**，否则关键词模式下换一种说法就查不到；语义模式下也能更稳。
+
+1. **首次出现参数时用「代码名：口语（同义）」一行写清**  
+   例：`wheelNum：轮子数量（轮数 / 驱动轮数）`  
+   例：`wheelDiameter：轮径 φ165 mm（驱动轮直径）`
+2. **故障/现象页**：代码或报错码旁补人话  
+   例：`E-OV：过压保护（过电压 / OV）`
+3. **不要只写代码名或只写口语**；别名写在正文里，不必另开索引页
+4. **对话沉淀 / 日结提炼进待确认时**：整理助手应保留并补上这种括注（见 `server/src/intake.ts` 提示词、`server/prompts/daily-summary.md`）
+5. 权威源仍是 `~/kb-sources` 里的 md；改完要进 GBrain（网页确认入库或 `gbrain capture`），有 embedding 时再 `embed --stale`
+
 ## 怎么完善（给人和 Agent 的工作流）
 
 每次只做一件能验证的事。建议顺序：
 
-1. **先跑起来**：`server/.env.example` 复制为 `server/.env`；装 Bun + `gbrain`；`gbrain init --pglite --no-embedding`；`npm run server` 与 `npm run dev:real`。种子账号见 README。
+1. **先跑起来**：`server/.env.example` 复制为 `server/.env`；装 Bun + `gbrain`；`gbrain init --pglite --no-embedding`；上线前配 embedding 并 `gbrain embed`；`npm run server` 与 `npm run dev:real`。种子账号见 README。
 2. **只改配置能解决的不要改代码**（检索条数、闲聊说法、提示词、密级关键词）。
 3. **新文件格式**：`server/src/text.ts` 的 `extractText()` 加后缀；同步 `src/views/admin/DocUploadView.vue` 的 `ACCEPT`；有 Mock 时改 `mock/http.ts`。外部转换软件的路径放 `.env`，用 spawn 调用，不要假设用户装了 Office。
 4. **新「办事」能力**（邮件、收问题点、处理闭环）按模块加，不要塞进 WebSocket 问答：
@@ -142,6 +165,8 @@
 - 提交 `server/.env`、`server/data/`
 - 常驻或接入 `gbrain serve`（PGLite 单写者，会锁库；问答只用 CLI spawn）
 - 把中文问句拆成二字组当语义查询（bge-m3 要整句）
+- 把领域高频词（如「AGV」）塞进 `search.questionPhrases` 当噪声过滤（那是去疑问说法的；会伤整句语义）
+- 只写英文字段名或只写车间口语入库（两端都要，见「知识正文别名」）
 
 ## AGV 知识问答的固定顺序（主人 2026-10-22 定）
 

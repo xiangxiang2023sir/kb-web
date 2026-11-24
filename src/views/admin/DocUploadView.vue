@@ -82,7 +82,7 @@ async function doUpload() {
       <el-icon size="40"><UploadFilled /></el-icon>
       <div class="el-upload__text">拖拽文件到此处，或 <em>点击选择</em></div>
       <template #tip>
-        <div class="el-upload__tip">仅支持 PDF、Word（.docx）、Excel（.xlsx / .xls / .xlsm）、Markdown、TXT。旧版 .doc、PPT、图片、压缩包不能入库。带宏的 Excel 只抽取表格文字，宏不会运行。</div>
+        <div class="el-upload__tip">仅支持 PDF、Word（.docx）、Excel（.xlsx / .xls / .xlsm）、Markdown、TXT。旧版 .doc、PPT、图片、压缩包不能入库。带宏的 Excel 只抽取表格文字，宏不会运行。参数/报错码请写成「代码名：口语」便于检索，例如 wheelNum：轮子数量（轮数）。</div>
       </template>
     </el-upload>
 

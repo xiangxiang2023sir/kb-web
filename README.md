@@ -12,10 +12,12 @@
 ```bash
 # 1. 后端密钥（不要提交）
 copy server\.env.example server\.env
-# 填写 DEEPSEEK_API_KEY；gbrain 不在 PATH 时填 GBRAIN_BIN
+# 必填 DEEPSEEK_API_KEY；gbrain 不在 PATH 时填 GBRAIN_BIN
+# 强烈建议同时填 OPENAI_API_KEY + OPENAI_BASE_URL（语义检索，见下）
 
 # 2. 本机知识库（只需一次）
 gbrain init --pglite --no-embedding
+# 开发可先 --no-embedding；要正经问答必须配 embedding 并 gbrain embed（见 server/.env.example）
 
 # 3. 依赖
 npm install
@@ -31,6 +33,11 @@ npm run dev:real
 - 仅看界面、不接真库：`npm run dev`（Mock）
 
 可调参数在 `server/config.yaml` 和 `server/prompts/`，改完重启后端。
+
+### 语义检索（embedding）
+
+不配 embedding 时，检索只剩关键词：问「AGV 有几个轮子」容易被每页都出现的「AGV」带偏。  
+生产/联调请在 `server/.env` 配好 `OPENAI_*`，执行 `gbrain embed --stale --yes`，用 `gbrain stats --json` 看 `embedded_count`。完整清单见 `部署说明.md` 第四节与 `AGENTS.md`。
 
 ## 飞书
 
